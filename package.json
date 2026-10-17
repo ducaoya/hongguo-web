@@ -1,6 +1,6 @@
 {
   "name": "hongguo-web",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "description": "红果短剧 · 网页版（本地服务 + SPA，非官方，仅供个人学习使用）",
   "main": "server.js",
@@ -12,8 +12,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "axios": "^1.7.0",
-    "jsdom": "^29.1.1"
+    "axios": "^1.7.0"
   },
   "license": "GPL-3.0"
 }

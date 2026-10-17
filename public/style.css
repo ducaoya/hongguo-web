@@ -421,14 +421,13 @@ input { font: inherit; color: inherit; }
 .ep-expand { display: block; margin: 14px auto 0; }
 
 /* ---------- 榜单页 ---------- */
-.rank-list { max-width: 720px; margin: 0 auto; padding: 0 16px; }
+.rank-list { max-width: 696px; margin: 0 auto; }
 .rank-row .no.top { color: var(--red); text-shadow: 0 0 24px rgba(255,70,51,.45); }
-.rank-row {
+.rank-row { margin: 0 10px;
   display: flex; align-items: center; gap: 18px; padding: 13px 16px;
-  border-radius: var(--r-md); transition: background .2s, transform .2s;
-  animation: cardIn .45s cubic-bezier(.22,.8,.3,1) both;
+  border-radius: var(--r-md); transition: background .2s, box-shadow .2s;
 }
-.rank-row:hover { background: var(--lg-tint); border: 1px solid var(--lg-border); }
+.rank-row:hover { background: var(--lg-tint); box-shadow: inset 0 0 0 1px var(--lg-border); }
 .rank-row .no {
   flex: 0 0 46px; text-align: center; font-family: var(--num); font-style: italic; font-weight: 700;
   font-size: 27px; color: var(--faint); letter-spacing: -.02em;
@@ -618,8 +617,8 @@ input { font: inherit; color: inherit; }
 .feed-open-btn { height: 34px; padding: 0 14px; font-size: 12px; box-shadow: var(--shadow-red); }
 .feed-ctrl {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 24;
-  padding: 8px clamp(16px, 3vw, 28px) 12px;
-  background: linear-gradient(0deg, rgba(0,0,0,.85), rgba(0,0,0,.45) 62%, transparent);
+  padding: 8px clamp(16px, 3vw, 28px) calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(0deg, rgba(16,12,20,.6), rgba(16,12,20,.3) 55%, transparent);
 }
 .feed-ctrl .seek { display: flex; align-items: center; gap: 14px; }
 .feed-ctrl .ctrl-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
@@ -700,7 +699,6 @@ input { font: inherit; color: inherit; }
   .filter-scroll { overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
   .filter-scroll::-webkit-scrollbar { display: none; }
   .player-bottom { padding: 0 14px calc(14px + env(safe-area-inset-bottom)); }
-  .feed-ctrl { padding: 8px 14px calc(12px + env(safe-area-inset-bottom)); }
   .topbar { flex-wrap: wrap; height: auto; padding: 8px 12px 6px; gap: 8px 10px; }
   .brand-name, .brand-div, .brand-sub { display: none; }
   .nav { flex: 1; justify-content: flex-end; overflow-x: auto; scrollbar-width: none; }
@@ -725,7 +723,6 @@ input { font: inherit; color: inherit; }
   .ctrl-row #p-vol, .ctrl-row #p-vol-pct { display: none; } /* 音量交给系统手势 */
   .ctrl-label { padding: 5px 8px; font-size: 11.5px; }
   .player-bottom { padding: 0 12px calc(12px + env(safe-area-inset-bottom)); }
-  .feed-ctrl { padding: 6px 12px calc(10px + env(safe-area-inset-bottom)); }
   .feed-ctrl .ctrl-row { gap: 5px; }
   .feed-ctrl .icon-btn { width: 36px; height: 36px; }
   .feed-open-btn { height: 30px; padding: 0 10px; font-size: 11.5px; }
@@ -888,7 +885,7 @@ input { font: inherit; color: inherit; }
 .ep-btn.current::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 4px; height: 3px; background: var(--red); border-radius: 2px; }
 
 /* —— 榜单行悬停玻璃 —— */
-.rank-row:hover { background: var(--lg-tint); border: 1px solid var(--lg-border); box-shadow: var(--lg-edge), 0 8px 26px -14px rgba(0,0,0,.55); }
+.rank-row:hover { background: var(--lg-tint); box-shadow: inset 0 0 0 1px var(--lg-border); }
 
 /* —— 弹层/抽屉/提示：强玻璃面板 —— */
 .pop-menu, .drawer, .toast, .suggest, .feed-tipbox {
@@ -917,9 +914,9 @@ input { font: inherit; color: inherit; }
   background: linear-gradient(0deg, rgba(16,12,20,.6), rgba(16,12,20,.3) 55%, transparent);
 }
 .feed-ctrl {
-  background: linear-gradient(0deg, rgba(18,14,22,.58), rgba(18,14,22,.3) 60%, transparent);
-  backdrop-filter: var(--lg-blur-strong);
-  border-top: 1px solid rgba(255,255,255,.08);
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 24;
+  padding: 8px clamp(16px, 3vw, 28px) calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(0deg, rgba(16,12,20,.6), rgba(16,12,20,.3) 55%, transparent);
 }
 .player-title .t, .player-title .s { text-shadow: 0 1px 8px rgba(0,0,0,.6); }
 

@@ -67,7 +67,7 @@ function dcacheSet(key, data) {
 
 function dcacheDel(key) { try { fs.unlinkSync(dfile(key)); } catch {} }
 const ROOT = __dirname;
-const PUBLIC_DIR = path.join(__dirname, 'frontend', 'dist');
+const PUBLIC_DIR = path.join(__dirname, 'public');
 const SITE = 'https://hongguoduanju.com';
 const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
 
@@ -217,7 +217,47 @@ function cleanCover(url) {
 
 let homeCacheT = { time: 0, data: null };
 let lastGoodHome = null;
-const lastGoodShelves = new Map(); // route → 最后成功的榜单条目
+let homeRefreshing = false;
+const lastGoodShelves = new Map();
+
+async function fetchHomeShelves() {
+  const shelves = [];
+  for (const route of Object.keys(RANK_ROUTES)) {
+    try {
+      const r = await getRank(route, 1);
+      if (r.items.length) {
+        const entry = { key: route, title: RANK_ROUTES[route], items: r.items };
+        lastGoodShelves.set(route, entry);
+        shelves.push(entry);
+      }
+    } catch (e) {
+      log('rank-fail', `${route} - ${e.message}`);
+      const g = lastGoodShelves.get(route);
+      if (g) shelves.push(g);
+    }
+  }
+  if (!shelves.length) return null;
+  lastGoodHome = { shelves };
+  return lastGoodHome;
+}
+
+let silentTimer = null;
+function silentRefreshHome() {
+  if (homeRefreshing) return; // 防重入
+  homeRefreshing = true;
+  clearTimeout(silentTimer);
+  silentTimer = setTimeout(async () => {
+    try {
+      log('home', '后台静默刷新首页数据…');
+      const d = await fetchHomeShelves();
+      if (d) {
+        homeCacheT = { time: Date.now(), data: d };
+        log('home', '静默刷新完成');
+      }
+    } catch (e) { log('home-err', `静默刷新失败: ${e.message}`); }
+    finally { homeRefreshing = false; }
+  }, 300);
+} // route → 最后成功的榜单条目
 const RANK_ROUTES = {
   'hot-drama': '红果热播榜',
   'hot-comic-drama': '漫剧热播榜',
@@ -681,32 +721,19 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { cleared: n });
     }
     if (pathname === '/api/home') {
-      if (homeCacheT.data && Date.now() - homeCacheT.time < DATA_TTL) return sendJson(res, 200, homeCacheT.data);
-      const shelves = [];
-      for (const route of Object.keys(RANK_ROUTES)) {
-        try {
-          const r = await getRank(route, 1);
-          if (r.items.length) {
-            const entry = { key: route, title: RANK_ROUTES[route], items: r.items };
-            lastGoodShelves.set(route, entry);
-            shelves.push(entry);
-          }
-        } catch (e) {
-          log('rank-fail', `${route} - ${e.message}`);
-          const g = lastGoodShelves.get(route);
-          if (g) shelves.push(g); // 本次限流失败，用最后一次成功的榜单兜底
-        }
+      // 有缓存 → 直接返回（新鲜或过期），过期后后台静默刷新
+      if (homeCacheT.data) {
+        const fresh = Date.now() - homeCacheT.time < DATA_TTL;
+        if (fresh) return sendJson(res, 200, homeCacheT.data);
+        // 过期：先给旧数据，后台静默刷新
+        log('home', '缓存已过期，返回旧数据 + 后台静默刷新');
+        silentRefreshHome();
+        return sendJson(res, 200, homeCacheT.data);
       }
-      if (!shelves.length) {
-        if (lastGoodHome) {
-          log('home', '榜单全部失败，返回最后可用快照');
-          return sendJson(res, 200, lastGoodHome);
-        }
-        return sendError(res, 502, '榜单数据全部拉取失败，请稍后重试');
-      }
-      homeCacheT = { time: Date.now(), data: { shelves } };
-      lastGoodHome = homeCacheT.data;
-      return sendJson(res, 200, homeCacheT.data);
+      // 无缓存 → 同步拉取
+      const d = await fetchHomeShelves();
+      if (d) { homeCacheT = { time: Date.now(), data: d }; return sendJson(res, 200, d); }
+      return sendError(res, 502, '榜单数据全部拉取失败，请稍后重试');
     }
     if (pathname === '/api/rank') {
       const route = u.searchParams.get('route') || 'hot-drama';
@@ -748,6 +775,12 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   log('boot', '服务已启动');
   log('boot', `地址: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+  // 启动预热：后台逐个拉取榜单，缓存到磁盘
+  Object.keys(RANK_ROUTES).forEach((route, i) => {
+    setTimeout(() => {
+      getRank(route, 1).then(r => log('warm', `${route}: ${r.items.length} 条`)).catch(e => log('warm-err', `${route}: ${e.message}`));
+    }, 800 + i * 1500);
+  });
   console.log('  数据: 官网 SSR + 番茄 App 接口（drpys 签名实现，GPL-3.0）');
   console.log('  提示: 非官方客户端，仅供个人本地使用；HOST=0.0.0.0 可开放局域网');
 });
