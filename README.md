@@ -57,13 +57,6 @@ npm start        # http://127.0.0.1:8630，HOST=0.0.0.0 开放局域网
 bash deploy/deploy-fnos.sh <NAS地址> <SSH用户名>
 ```
 
-## 📦 版本发布（自动构建 .fpk）
-
-在 `master` 分支提交且**提交信息包含 `【release】`** 时，GitHub Actions 会自动：
-
-1. 安装依赖 → 下载 fnpack → 打出 `hongguo.fpk`
-2. 按 `package.json` 版本号创建 Release 并上传附件
-
 ## 🧱 架构
 
 ```
