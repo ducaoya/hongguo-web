@@ -67,7 +67,7 @@ function dcacheSet(key, data) {
 
 function dcacheDel(key) { try { fs.unlinkSync(dfile(key)); } catch {} }
 const ROOT = __dirname;
-const PUBLIC_DIR = path.join(ROOT, 'public');
+const PUBLIC_DIR = path.join(__dirname, 'frontend', 'dist');
 const SITE = 'https://hongguoduanju.com';
 const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
 
