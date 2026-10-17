@@ -157,7 +157,7 @@ input { font: inherit; color: inherit; }
   display: flex; flex-direction: column; overflow: hidden;
 }
 .fixed-head { flex-shrink: 0; padding: clamp(14px, 2vw, 22px) 0 12px; }
-.scroll-region { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 40px; }
+.scroll-region { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 10px 40px; }
 .load-sentinel { padding: 18px 0 6px; display: grid; place-items: center; }
 .load-line { font-size: 12px; color: var(--faint); letter-spacing: .12em; }
 
@@ -421,14 +421,14 @@ input { font: inherit; color: inherit; }
 .ep-expand { display: block; margin: 14px auto 0; }
 
 /* ---------- 榜单页 ---------- */
-.rank-list { max-width: 720px; margin: 0 auto; padding: 0 12px; }
+.rank-list { max-width: 720px; margin: 0 auto; padding: 0 16px; }
 .rank-row .no.top { color: var(--red); text-shadow: 0 0 24px rgba(255,70,51,.45); }
 .rank-row {
   display: flex; align-items: center; gap: 18px; padding: 13px 16px;
   border-radius: var(--r-md); transition: background .2s, transform .2s;
   animation: cardIn .45s cubic-bezier(.22,.8,.3,1) both;
 }
-.rank-row:hover { background: var(--panel); transform: translateX(4px); }
+.rank-row:hover { background: var(--lg-tint); border: 1px solid var(--lg-border); }
 .rank-row .no {
   flex: 0 0 46px; text-align: center; font-family: var(--num); font-style: italic; font-weight: 700;
   font-size: 27px; color: var(--faint); letter-spacing: -.02em;
@@ -888,7 +888,7 @@ input { font: inherit; color: inherit; }
 .ep-btn.current::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 4px; height: 3px; background: var(--red); border-radius: 2px; }
 
 /* —— 榜单行悬停玻璃 —— */
-.rank-row:hover { background: var(--lg-tint); box-shadow: var(--lg-edge); }
+.rank-row:hover { background: var(--lg-tint); border: 1px solid var(--lg-border); box-shadow: var(--lg-edge), 0 8px 26px -14px rgba(0,0,0,.55); }
 
 /* —— 弹层/抽屉/提示：强玻璃面板 —— */
 .pop-menu, .drawer, .toast, .suggest, .feed-tipbox {
