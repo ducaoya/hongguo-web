@@ -1,0 +1,5 @@
+node_modules/.package-lock.json
+research
+deploy/icons
+*.fpk
+.DS_Store

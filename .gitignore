@@ -1,0 +1,5 @@
+node_modules/
+*.fpk
+.DS_Store
+research/
+nohup.out

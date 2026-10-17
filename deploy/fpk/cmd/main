@@ -1,0 +1,126 @@
+#!/bin/bash
+# hongguo 启停脚本 — fnOS 生命周期入口（start/stop/status/restart）
+# 原生模式：直接使用 fnOS 的 nodejs_v24 运行时，无需 Docker。
+set -uo pipefail
+
+APP_NAME="${TRIM_APPNAME:-hongguo}"
+APP_DIR="${TRIM_APPDEST:-/var/apps/${APP_NAME}}"
+SRC_DIR="${APP_DIR}/server"
+DATA_DIR="${APP_DIR}/data"
+LOG="${DATA_DIR}/hongguo.log"
+PID_FILE="${DATA_DIR}/hongguo.pid"
+PORT="${TRIM_SERVICE_PORT:-8630}"
+HOSTNAME="0.0.0.0"
+
+mkdir -p "${DATA_DIR}"
+
+# find_node — 定位 fnOS 内置 nodejs_v24 运行时，其次系统 node
+find_node() {
+    local vol="" cand=""
+    vol="$(printf '%s' "${APP_DIR}" | sed -n 's#^\(/vol[^/]*\)/.*#\1#p')"
+    for cand in "/var/apps/nodejs_v24/target/bin/node" \
+                "${vol}/@appcenter/nodejs_v24/bin/node" \
+                "${vol}/@appcenter/nodejs_v24/target/bin/node" \
+                "/var/apps/nodejs_v22/target/bin/node" \
+                "${vol}/@appcenter/nodejs_v22/bin/node" \
+                "${vol}/@appcenter/nodejs_v22/target/bin/node" \
+                "$(command -v node 2>/dev/null)" "/usr/bin/node"; do
+        if [ -n "${cand}" ] && [ -x "${cand}" ]; then
+            printf '%s\n' "${cand}"
+            return 0
+        fi
+    done
+    return 0
+}
+
+pid_is_ours() {
+    local p="$1"
+    [ -n "${p}" ] && [ -r "/proc/${p}/cmdline" ] \
+        && tr '\0' ' ' < "/proc/${p}/cmdline" | grep -q 'server\.js'
+}
+
+start() {
+    if [ ! -f "${SRC_DIR}/server.js" ]; then
+        echo "ERROR: ${SRC_DIR}/server.js 不存在，安装似乎不完整" >&2
+        return 1
+    fi
+    local node_bin
+    node_bin="$(find_node)"
+    if [ -z "${node_bin}" ]; then
+        echo "ERROR: 未找到 Node.js 运行时。请先在飞牛应用中心安装 nodejs_v24（或确保系统已安装 node）。" >&2
+        return 1
+    fi
+    if [ -f "${PID_FILE}" ] && pid_is_ours "$(cat "${PID_FILE}" 2>/dev/null || true)"; then
+        echo "already running (pid $(cat "${PID_FILE}"))"
+        return 0
+    fi
+    rm -f "${PID_FILE}" 2>/dev/null || true
+
+    cd "${SRC_DIR}"
+    HOST="0.0.0.0" HOSTNAME="0.0.0.0" PORT="${PORT}" \
+        nohup "${node_bin}" server.js >> "${LOG}" 2>&1 &
+    echo $! > "${PID_FILE}"
+
+    # 等待服务就绪（最多 30s）
+    if command -v curl >/dev/null 2>&1; then
+        for _ in $(seq 1 30); do
+            if curl -sf "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
+                echo "started (pid $(cat "${PID_FILE}"))"
+                return 0
+            fi
+            sleep 1
+        done
+        echo "WARN: 健康检查 30s 超时，进程已拉起，请查看 ${LOG}" >&2
+        return 1
+    fi
+    sleep 2
+    if kill -0 "$(cat "${PID_FILE}")" 2>/dev/null; then
+        echo "started (pid $(cat "${PID_FILE}")) (no curl: skipped health check)"
+        return 0
+    fi
+    echo "ERROR: 进程启动后立即退出，请查看 ${LOG}" >&2
+    return 1
+}
+
+stop() {
+    local pid=""
+    if [ -f "${PID_FILE}" ]; then
+        pid="$(cat "${PID_FILE}" 2>/dev/null || true)"
+        kill "${pid}" 2>/dev/null || true
+        for _ in $(seq 1 10); do
+            kill -0 "${pid}" 2>/dev/null || break
+            sleep 1
+        done
+        if kill -0 "${pid}" 2>/dev/null; then
+            kill -9 "${pid}" 2>/dev/null || true
+        fi
+        rm -f "${PID_FILE}"
+    fi
+    # 兜底：清扫工作目录属于本应用的残留 server.js 进程
+    local p="" cwd=""
+    for p in /proc/[0-9]*; do
+        cwd="$(readlink -f "${p}/cwd" 2>/dev/null || true)"
+        if [ "${cwd}" = "${SRC_DIR}" ] \
+            && tr '\0' ' ' < "${p}/cmdline" 2>/dev/null | grep -q 'server\.js'; then
+            kill "${p#/proc/}" 2>/dev/null || true
+        fi
+    done
+    echo "stopped"
+}
+
+status() {
+    if [ -f "${PID_FILE}" ] && pid_is_ours "$(cat "${PID_FILE}" 2>/dev/null || true)"; then
+        echo "running"
+        return 0
+    fi
+    echo "stopped"
+    return 1
+}
+
+case "${1:-start}" in
+    start) start ;;
+    stop) stop ;;
+    status) status ;;
+    restart) stop; sleep 1; start ;;
+    *) echo "Usage: $0 {start|stop|status|restart}"; exit 1 ;;
+esac

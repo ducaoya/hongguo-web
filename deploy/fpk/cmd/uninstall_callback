@@ -1,0 +1,13 @@
+#!/bin/bash
+# 卸载后置：清扫残留进程（fnOS 已先执行 main stop）
+set -uo pipefail
+APP_DIR="${TRIM_APPDEST:-/var/apps/${TRIM_APPNAME:-hongguo}}"
+SRC_DIR="${APP_DIR}/server"
+local_p="" cwd=""
+for p in /proc/[0-9]*; do
+  cwd="$(readlink -f "${p}/cwd" 2>/dev/null || true)"
+  if [ "${cwd}" = "${SRC_DIR}" ] && tr '\0' ' ' < "${p}/cmdline" 2>/dev/null | grep -q 'server\.js'; then
+    kill -9 "${p#/proc/}" 2>/dev/null || true
+  fi
+done
+exit 0

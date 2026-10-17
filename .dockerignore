@@ -1,0 +1,5 @@
+research
+deploy
+*.fpk
+.DS_Store
+*.log

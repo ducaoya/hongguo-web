@@ -1,0 +1,15 @@
+appname               = hongguo
+version               = 1.0.0
+display_name          = 红果短剧·深夜剧场
+desc                  = 红果短剧第三方网页客户端：最高 1080P 播放、短视频式推荐刷剧流、分类/榜单/搜索、断点续播。数据来自红果官网公开页面与社区逆向接口，仅供个人学习使用，与红果官方无关。
+arch                  = x86_64
+source                = thirdparty
+maintainer            = ducaoya
+distributor           = ducaoya
+desktop_uidir         = ui
+desktop_applaunchname = hongguo.main
+service_port          = 8630
+checkport             = true
+ctl_stop              = true
+os_min_version        = 1.1.3100
+changelog             = 首个版本：1080P 播放（preload 接口 + CENC 分段解密代理）；推荐刷剧流；分类/榜单；断点续播。

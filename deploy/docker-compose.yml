@@ -1,0 +1,18 @@
+services:
+  hongguo-web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: hongguo-web
+    restart: unless-stopped
+    ports:
+      - "8630:8630"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8630
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8630/api/health"]
+      interval: 60s
+      timeout: 10s
+      start_period: 15s
+      retries: 3

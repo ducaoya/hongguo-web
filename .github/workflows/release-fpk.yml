@@ -1,0 +1,40 @@
+name: Build fpk Release
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  build-fpk:
+    # 仅当推送的提交信息包含【release】时触发构建
+    if: contains(github.event.head_commit.message, '【release】')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 安装依赖（纯 JS，离线打包进 fpk）
+        run: npm ci --omit=dev --no-audit --no-fund
+
+      - name: 打包 hongguo.fpk
+        run: bash deploy/fpk/build-fpk.sh "$GITHUB_WORKSPACE"
+
+      - name: 读取版本号
+        id: ver
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: 创建 Release 并上传 fpk
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VER: ${{ steps.ver.outputs.version }}
+        run: |
+          gh release delete "v${VER}" -y --cleanup-tag 2>/dev/null || true
+          gh release create "v${VER}" hongguo.fpk \
+            --title "红果短剧·深夜剧场 v${VER}" \
+            --notes "fpk 应用包（飞牛 fnOS：应用中心 → 手动安装）。Docker/Node 部署见 README。仅供个人学习使用。"

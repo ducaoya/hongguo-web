@@ -1,0 +1,24 @@
+#!/bin/bash
+# 升级后置：校验应用文件完整（server + 内置 node_modules），写安装日志
+set -uo pipefail
+APP_NAME="${TRIM_APPNAME:-hongguo}"
+APP_DIR="${TRIM_APPDEST:-/var/apps/${APP_NAME}}"
+DATA_DIR="${APP_DIR}/data"
+LOG="${DATA_DIR}/install.log"
+mkdir -p "${DATA_DIR}"
+{
+  echo "[$(date '+%F %T')] upgrade_callback start"
+  if [ ! -f "${APP_DIR}/server/server.js" ]; then
+    echo "ERROR: server.js 缺失"
+    exit 1
+  fi
+  if [ ! -d "${APP_DIR}/server/node_modules" ]; then
+    echo "ERROR: node_modules 缺失（离线包应自带依赖）"
+    exit 1
+  fi
+  if [ ! -x "${APP_DIR}/server/vendor/hongguo.cjs" ]; then
+    echo "WARN: vendor 源缺失，高清通道将不可用"
+  fi
+  echo "upgrade_callback ok"
+} >> "${LOG}" 2>&1
+exit 0

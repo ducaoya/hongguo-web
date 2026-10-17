@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 400">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1d1620"/>
+      <stop offset="1" stop-color="#2b1420"/>
+    </linearGradient>
+  </defs>
+  <rect width="300" height="400" fill="url(#g)"/>
+  <text x="150" y="215" font-family="Songti SC, STSong, serif" font-size="64" fill="#5a3a3a" text-anchor="middle">红</text>
+</svg>

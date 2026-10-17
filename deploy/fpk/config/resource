@@ -1,0 +1,28 @@
+{
+    "data-share":
+    {
+        "shares":
+        [
+            {
+                "name": "hongguo",
+                "permission":
+                {
+                    "rw":
+                    [
+                        "hongguo"
+                    ]
+                }
+            },
+            {
+                "name": "hongguo/data",
+                "permission":
+                {
+                    "rw":
+                    [
+                        "hongguo"
+                    ]
+                }
+            }
+        ]
+    }
+}
