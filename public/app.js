@@ -64,6 +64,8 @@ const store = {
     localStorage.setItem('hg_progress', JSON.stringify(p));
   },
   getProgress(sid) { return this.progress[sid] || null; },
+  removeProgress(sid) { const p = this.progress; delete p[sid]; try { localStorage.setItem('hg_progress', JSON.stringify(p)); } catch {} },
+  clearProgress() { try { localStorage.setItem('hg_progress', '{}'); } catch {} },
   get settings() { try { return JSON.parse(localStorage.getItem('hg_settings') || '{}'); } catch { return {}; } },
   setSetting(k, v) { const s = this.settings; s[k] = v; localStorage.setItem('hg_settings', JSON.stringify(s)); },
 };
@@ -125,7 +127,7 @@ async function getHomeData() {
 
 /* ---------------- 路由 ---------------- */
 const viewEl = $('#view');
-const playerLayer = $('#player-layer');
+let playerLayer = $('#player-layer');
 let cleanups = [];
 
 function onCleanup(fn) { cleanups.push(fn); }
@@ -144,16 +146,26 @@ function parseHash() {
   return { path, query: new URLSearchParams(qs || ''), seg: path.split('/').filter(Boolean) };
 }
 
+function resetLayer() {
+  // 浅克隆替换节点：旧节点上的所有事件监听器随节点一起消亡，杜绝跨页面手势残留
+  const fresh = playerLayer.cloneNode(false);
+  fresh.innerHTML = '';
+  playerLayer.replaceWith(fresh);
+  playerLayer = fresh;
+}
+
 function router() {
   const { seg, query } = parseHash();
   runCleanups();
   destroyPlayer();
+  resetLayer();
   updateNav(seg[0] || 'home');
 
   if (!seg.length) return viewHome();
   if (seg[0] === 'feed') return viewFeed();
   if (seg[0] === 'category') return viewCategory(seg[1] || 'real-drama', /^[a-z-]+$/.test(seg[2] || '') ? seg[2] : '', Number(seg[2]) || Number(seg[3]) || 1);
   if (seg[0] === 'rank' && /^[a-z-]+$/.test(seg[1] || '')) return viewRank(seg[1]);
+  if (seg[0] === 'history') return viewHistory();
   if (seg[0] === 'search' && seg[1]) return viewSearch(decodeURIComponent(seg[1]), Number(query.get('page') || 1));
   if (seg[0] === 'series' && /^\d+$/.test(seg[1] || '')) return viewSeries(seg[1]);
   if (seg[0] === 'play' && /^\d+$/.test(seg[1] || '') && /^\d+$/.test(seg[2] || '')) return viewPlay(seg[1], seg[2], query.get('q') || '');
@@ -161,7 +173,7 @@ function router() {
 }
 
 function updateNav(key) {
-  const active = ({ home: 'home', feed: 'feed', category: 'category', rank: 'rank' })[key] || '';
+  const active = ({ home: 'home', feed: 'feed', category: 'category', rank: 'rank', history: 'history' })[key] || '';
   $$('#nav a').forEach((a) => a.classList.toggle('active', a.dataset.nav === active && active !== ''));
 }
 
@@ -291,24 +303,27 @@ async function viewHome() {
     return;
   }
 
-  const hero = shelves[0]?.items?.[0];
-  const heroHtml = hero ? `
-  <section class="hero">
-    <div class="bg"><img src="${img(hero.cover)}" alt="" onerror="this.style.display='none'"></div>
-    <div class="inner">
-      <div class="kicker"><span class="flame">今日热榜 No.1</span>${hero.score ? `<span class="score">${esc(hero.score)}</span>` : ''}</div>
-      <h1>${esc(hero.title)}</h1>
-      <div class="meta">
-        ${hero.heat ? `<span class="chip hot">${esc(hero.heat)}</span>` : ''}
-        ${hero.remarks ? `<span class="chip">${esc(hero.remarks)}</span>` : ''}
-        ${(hero.tags || []).slice(0, 3).map((t) => `<span class="chip">${esc(t)}</span>`).join('')}
-      </div>
-      <p class="intro">${esc(hero.intro || '')}</p>
-      <div class="hero-actions" style="display:flex;gap:12px">
-        <button class="btn btn-red" id="hero-play" data-id="${esc(hero.id)}">${PLAY_SVG} 立即观看</button>
-        <a class="btn btn-ghost" href="#/series/${esc(hero.id)}">查看详情</a>
-      </div>
+  const top10 = (shelves[0]?.items || []).slice(0, 10);
+  const heroHtml = top10.length ? `
+  <section class="hero3d" id="hero">
+    <div class="c3d-stage">
+      ${top10.map((it, i) => `
+      <div class="c3d-card" data-i="${i}">
+        <img src="${img(it.cover)}" alt="${esc(it.title)}" onerror="this.src='/img-fallback.svg'">
+        <div class="c3d-cap">
+          <div class="c3d-kicker"><span class="flame">热榜 No.${i + 1}</span>${it.score ? `<span class="score">${esc(it.score)}</span>` : ''}</div>
+          <div class="c3d-title">${esc(it.title)}</div>
+          <div class="c3d-chips">${it.heat ? `<span class="chip hot">${esc(it.heat)}</span>` : ''}${(it.tags || []).slice(0, 2).map((t) => `<span class="chip">${esc(t)}</span>`).join('')}</div>
+          <div class="c3d-actions">
+            <button class="btn btn-red hero-play-btn" data-id="${esc(it.id)}">${PLAY_SVG} 观看</button>
+            <a class="btn btn-ghost" href="#/series/${esc(it.id)}">详情</a>
+          </div>
+        </div>
+      </div>`).join('')}
     </div>
+    <button class="hero-arrow" data-dir="prev" title="上一部"><svg class="stroke" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <button class="hero-arrow" data-dir="next" title="下一部"><svg class="stroke" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>
+    <div class="hero-dots">${top10.map((_, i) => `<button class="hero-dot ${i === 0 ? 'on' : ''}" data-i="${i}"></button>`).join('')}</div>
   </section>` : '';
 
   const continueHtml = continueItems.length ? shelfHTML('继续观看', continueItems.map((r, i) => cardHTML({
@@ -323,16 +338,88 @@ async function viewHome() {
 
   render(`<div class="page">${heroHtml}${continueHtml}${shelvesHtml}</div>`);
 
-  $('#hero-play')?.addEventListener('click', async (e) => {
-    const btn = e.currentTarget;
-    btn.disabled = true;
+  // 3D 轮播：中心卡放大、两侧 3D 倾斜，自动轮换 + 悬停暂停
+  const cards = $$('.c3d-card'), dots = $$('.hero-dot');
+  let hi = 0, heroTimer = null;
+  const n = cards.length;
+  const layout3d = () => {
+    hi = ((hi % n) + n) % n; // 归一化：负数/越界也能正确点亮圆点
+    cards.forEach((card, i) => {
+      let off = ((i - hi) % n + n) % n;
+      if (off > n / 2) off -= n;
+      const abs = Math.abs(off);
+      card.style.opacity = abs <= 2 ? String(1 - abs * 0.3) : '0';
+      card.style.zIndex = String(20 - abs);
+      card.style.transform = `translate(-50%, -50%) translateX(${off * 64}%) rotateY(${off === 0 ? 0 : off < 0 ? 30 : -30}deg) scale(${off === 0 ? 1 : Math.max(0.7, 1 - abs * 0.12)})`;
+      card.classList.toggle('center', off === 0);
+    });
+    dots.forEach((d, k) => d.classList.toggle('on', k === hi));
+  };
+  const heroAuto = () => { clearInterval(heroTimer); heroTimer = setInterval(() => { hi = (hi + 1) % n; layout3d(); }, 5000); };
+  if (n > 1) {
+    layout3d();
+    heroAuto();
+    $('#hero').addEventListener('mouseenter', () => clearInterval(heroTimer));
+    $('#hero').addEventListener('mouseleave', heroAuto);
+    $$('.hero-dot').forEach((d, k) => d.addEventListener('click', () => { hi = k; layout3d(); }));
+    $$('.hero-arrow').forEach((a) => a.addEventListener('click', () => { hi = a.dataset.dir === 'prev' ? hi - 1 : hi + 1; layout3d(); }));
+    $$('.c3d-card').forEach((c) => c.addEventListener('click', (ev) => {
+      if (ev.target.closest('button,a')) return;
+      const i = Number(c.dataset.i);
+      if (i !== hi) { hi = i; layout3d(); }
+    }));
+    // 触控板横向滑动切换
+    let wheelLock = 0;
+    $('#hero').addEventListener('wheel', (ev) => {
+      if (Math.abs(ev.deltaX) <= Math.abs(ev.deltaY) || Math.abs(ev.deltaX) < 24) return;
+      const now = Date.now();
+      if (now - wheelLock < 450) return;
+      wheelLock = now;
+      hi += ev.deltaX > 0 ? 1 : -1;
+      layout3d();
+    }, { passive: true });
+    // 鼠标按住左右拖拽切换
+    let dragStart = null;
+    $('.c3d-stage').addEventListener('pointerdown', (ev) => { dragStart = { x: ev.clientX, y: ev.clientY }; });
+    $('.c3d-stage').addEventListener('pointerup', (ev) => {
+      if (!dragStart) return;
+      const dx = ev.clientX - dragStart.x, dy = ev.clientY - dragStart.y;
+      dragStart = null;
+      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.2) { hi += dx < 0 ? 1 : -1; layout3d(); }
+    });
+    onCleanup(() => clearInterval(heroTimer));
+  }
+  $$('.hero-play-btn').forEach((btn) => btn.addEventListener('click', async (e) => {
+    const b = e.currentTarget;
+    b.disabled = true;
     try {
-      const series = await getSeries(btn.dataset.id);
+      const series = await getSeries(b.dataset.id);
       const rec = store.getProgress(series.id);
       const ep = (rec && series.episodes.find((x) => x.vid === rec.vid)) || series.episodes[0];
       setHash(`#/play/${series.id}/${ep.vid}?q=${encodeURIComponent(series.qualities[0]?.key || '')}`);
-    } catch (err) { toast(err.message, 'err'); btn.disabled = false; }
+    } catch (err) { toast(err.message, 'err'); b.disabled = false; }
+  }));
+
+  // 右下角：清除服务端数据缓存并刷新首页
+  const cacheBtn = document.createElement('button');
+  cacheBtn.className = 'cache-btn';
+  cacheBtn.textContent = '清除服务器缓存';
+  cacheBtn.addEventListener('click', async () => {
+    cacheBtn.disabled = true;
+    cacheBtn.textContent = '清除中…';
+    try {
+      const r = await api('/api/cache/clear');
+      memoDrop('home');
+      toast(`已清除 ${r.cleared} 条缓存，正在刷新…`);
+      viewHome();
+    } catch (e) {
+      toast(e.message, 'err');
+      cacheBtn.disabled = false;
+      cacheBtn.textContent = '清除服务器缓存';
+    }
   });
+  document.body.appendChild(cacheBtn);
+  onCleanup(() => cacheBtn.remove());
 }
 
 /* ---------------- 固定头 + 滚动区（分类/榜单共用） ---------------- */
@@ -383,7 +470,6 @@ async function viewFeed() {
   render('');
   playerLayer.className = 'player-layer feed-mode';
   playerLayer.innerHTML = `<div class="feed" id="feed-scroller"><div class="feed-tip" id="feed-tip">↑ ↓ 切换剧集 · ← → 切换集数 · 滚轮滑动 · Esc 退出</div></div>
-    <button class="icon-btn feed-close" id="feed-close" title="退出推荐 (Esc)"><svg class="stroke" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     <div class="feed-ctrl" id="feed-ctrl">
       <div class="seek">
         <span class="tm" id="fc-cur">0:00</span>
@@ -655,6 +741,29 @@ async function viewFeed() {
         feedShowError(i, '本集加载失败，请重试');
       }
     });
+    // 显式像素适配：竖屏高度撑满、横屏宽度撑满（容器为控件条上方的剩余空间）
+    const fitFeed = () => {
+      const vw = v.videoWidth, vh = v.videoHeight;
+      if (!vw || !vh) return;
+      const portrait = vh > vw;
+      const cover = store.settings.fit === 'cover' && !portrait;
+      const area = v.closest('.feed-video-slot');
+      const W = (area && area.clientWidth) || window.innerWidth;
+      const H = (area && area.clientHeight) || window.innerHeight;
+      if (cover) {
+        v.style.width = W + 'px'; v.style.height = H + 'px';
+        v.style.objectFit = 'cover';
+      } else {
+        const sc = Math.min(W / vw, H / vh);
+        v.style.width = Math.round(vw * sc) + 'px';
+        v.style.height = Math.round(vh * sc) + 'px';
+        v.style.objectFit = 'fill';
+      }
+    };
+    v.addEventListener('loadedmetadata', fitFeed);
+    if (feed.fitFeed) window.removeEventListener('resize', feed.fitFeed);
+    feed.fitFeed = fitFeed;
+    window.addEventListener('resize', fitFeed);
 
     // 预热：本剧后续两集 + 后面两部剧
     prefetchUpcoming(s, epIdx, s.qualities[0]?.key || '', 2);
@@ -721,16 +830,25 @@ async function viewFeed() {
       recordProgress(feed.list[i].id, s.name, feed.list[i].cover, feed.vid, feed.epIdx, s.episodes.length, feed.video);
       setHash(`#/play/${feed.list[i].id}/${feed.vid}?q=${encodeURIComponent(s.qualities[0]?.key || '')}&t=${t}`);
     } else if (btn.dataset.act === 'tag') {
-      // 标签 → 分类页（带同名题材筛选）
+      // 标签 → 分类页：精确 slug → 模糊匹配；均无则转搜索
       const d = feed.list[Number(btn.dataset.i)] || feed.list[feed.idx];
       const type = d?.type || 'real-drama';
-      const slug = feed.tagMaps[type]?.[btn.dataset.tag] || '';
-      setHash(`#/category/${type}${slug ? '/' + slug : ''}/1`);
+      const tag = btn.dataset.tag || '';
+      const map = feed.tagMaps[type] || {};
+      let slug = map[tag] || '';
+      if (!slug) {
+        const hit = Object.keys(map).find((n) => n.includes(tag) || tag.includes(n));
+        if (hit) slug = map[hit];
+      }
+      if (slug) setHash(`#/category/${type}/${slug}/1`);
+      else {
+        toast(`「${tag}」暂无对应题材分类，已转搜索`);
+        setHash(`#/search/${encodeURIComponent(tag)}`);
+      }
     } else if (btn.dataset.act === 'detail') {
       setHash(`#/series/${feed.list[i].id}`);
     }
   });
-  $('#feed-close').addEventListener('click', () => history.back());
   setTimeout(() => { const t = $('#feed-tip'); if (t) t.classList.add('bye'); }, 4200);
 
   const keyHandler = (ev) => {
@@ -758,6 +876,8 @@ async function viewFeed() {
 
   onCleanup(() => {
     clearInterval(saveTimer);
+    if (feed.fitFeed) window.removeEventListener('resize', feed.fitFeed);
+    window.removeEventListener('beforeunload', saveNow);
     document.removeEventListener('keydown', keyHandler);
     document.body.style.overflow = '';
     feed.loadToken += 1;
@@ -903,6 +1023,43 @@ async function viewRank(route) {
   onCleanup(stop);
 }
 
+/* ---------------- 观看历史（全部） ---------------- */
+async function viewHistory() {
+  const entries = Object.entries(store.progress)
+    .map(([sid, rec]) => ({ sid, ...rec }))
+    .filter((r) => r.name && r.vid)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+
+  render(fixedPageShell(
+    `<div class="sec-head" style="margin:0"><h2>观看历史</h2><a class="more">共 ${entries.length} 部</a>${entries.length ? '<button class="btn btn-ghost" id="his-clear" style="margin-left:auto;height:32px;padding:0 12px;font-size:12px">清空全部</button>' : ''}</div>`,
+    `${entries.length ? `<div class="grid" id="his-grid">${entries.map((r, i) => `
+      <a class="card" href="#/play/${esc(r.sid)}/${esc(r.vid)}" data-sid="${esc(r.sid)}" style="animation-delay:${Math.min(i * 35, 350)}ms">
+        <div class="poster">
+          <img src="${img(r.cover)}" alt="${esc(r.name)}" loading="lazy" onerror="this.src='/img-fallback.svg'">
+          <span class="play-badge">${PLAY_SVG}</span>
+          <div class="resume-bar"><i style="width:${r.dur ? Math.min(100, (r.time / r.dur) * 100) : 0}%"></i></div>
+          <span class="resume-ep">第${r.index}集 · ${fmtTime(r.time)}</span>
+          <button class="card-detail-btn his-del" data-del="${esc(r.sid)}" title="删除该记录"><svg class="stroke" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
+        <div class="t">${esc(r.name)}</div>
+        <div class="r">${r.total ? `共 ${r.total} 集` : ''}${r.total && r.index ? ' · ' : ''}第 ${r.index} 集</div>
+      </a>`).join('')}</div>` : '<div class="empty"><div class="glyph">空</div>还没有观看记录，去看一部剧吧</div>'}<div style="height:36px"></div>`)
+  );
+
+  $('#his-clear')?.addEventListener('click', () => {
+    store.clearProgress();
+    toast('已清空全部观看记录');
+    viewHistory();
+  });
+  $$('.his-del').forEach((b) => b.addEventListener('click', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    store.removeProgress(b.dataset.del);
+    toast('已删除该记录');
+    viewHistory();
+  }));
+}
+
 /* ---------------- 搜索 ---------------- */
 async function viewSearch(q, page) {
   const si = $('#search-input');
@@ -922,9 +1079,9 @@ async function viewSearch(q, page) {
   }
   render(`
   <div class="page">
-    <div class="sec-head"><h2>“${esc(q)}” 的搜索结果</h2>${data.total ? `<a class="more">共 ${data.total} 部</a>` : ''}</div>
+    <div class="sec-head"><h2>“${esc(q)}” 的搜索结果</h2>${data.via === 'site' ? '<a class="more">官网搜索每次最多提供 10 部</a>' : ''}${data.total ? `<a class="more">共 ${data.total} 部</a>` : ''}</div>
     <div class="grid" id="search-grid">${data.items.map((it, i) => cardHTML(it, { i })).join('')}</div>
-    <div class="pager"><button class="btn btn-ghost" id="more-btn">加载更多</button></div>
+    <div class="pager"><button class="btn btn-ghost" id="more-btn" style="${data.via === 'site' ? 'display:none' : ''}">加载更多</button></div>
   </div>`);
   const grid = $('#search-grid');
   const moreBtn = $('#more-btn');
@@ -942,7 +1099,34 @@ async function viewSearch(q, page) {
 
 /* ---------------- 详情 ---------------- */
 async function viewSeries(id) {
-  render(`<div class="detail-hero"><div class="sk sk-hero" style="height:340px;margin:0"></div></div>`);
+  render(`<div class="detail-hero">
+    <div class="detail-backdrop sk" style="position:absolute;inset:0;height:105%;overflow:hidden"></div>
+    <div class="detail-body">
+      <div class="sk detail-poster"></div>
+      <div class="detail-info">
+        <div class="sk sk-line" style="width:58%;height:36px;margin-bottom:16px"></div>
+        <div class="detail-meta" style="margin-bottom:14px">
+          <span class="sk" style="width:78px;height:28px;border-radius:8px;display:inline-block"></span>
+          <span class="sk" style="width:64px;height:22px;border-radius:999px;display:inline-block"></span>
+          <span class="sk" style="width:72px;height:22px;border-radius:999px;display:inline-block"></span>
+          <span class="sk" style="width:96px;height:22px;border-radius:999px;display:inline-block"></span>
+          <span class="sk" style="width:60px;height:22px;border-radius:999px;display:inline-block"></span>
+        </div>
+        <div class="sk sk-line" style="width:42%;margin-bottom:14px"></div>
+        <div class="sk sk-line" style="width:94%"></div>
+        <div class="sk sk-line" style="width:90%"></div>
+        <div class="sk sk-line" style="width:64%"></div>
+        <div class="detail-actions" style="margin-top:20px">
+          <span class="sk" style="width:138px;height:42px;border-radius:999px;display:inline-block"></span>
+          <span class="sk" style="width:112px;height:42px;border-radius:999px;display:inline-block"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <section class="episodes-sec">
+    <div class="sk sk-line" style="width:150px;height:20px;margin-bottom:14px"></div>
+    <div class="ep-grid">${Array.from({ length: 42 }, () => '<span class="sk" style="height:40px;border-radius:8px;display:block"></span>').join('')}</div>
+  </section>`);
   let s;
   try { s = await getSeries(id); } catch (e) {
     render(`<div class="page"><div class="error-box"><div class="msg">${esc(e.message)}</div><button class="btn btn-red" onclick="location.reload()">重试</button></div></div>`);
@@ -956,7 +1140,6 @@ async function viewSeries(id) {
   const resumeT = resumeEp && rec.vid === firstTarget.vid && rec.time > 10 ? Math.floor(rec.time) : 0;
 
   const epBtn = (ep) => `<button class="ep-btn ${ep.index === currentIndex ? 'current' : (currentIndex && ep.index < currentIndex ? 'watched' : '')}" data-vid="${esc(ep.vid)}" data-t="${ep.index === currentIndex ? resumeT : 0}">${ep.index}</button>`;
-  const manyEps = s.episodes.length > 42;
 
   render(`
   <div class="detail-hero">
@@ -983,15 +1166,13 @@ async function viewSeries(id) {
   </div>
   <section class="episodes-sec">
     <div class="sec-head"><h2>选集</h2><a class="more">${s.episodes.length} 集 · 默认 ${esc((s.qualities[0]?.label) || '360P')}，可切换</a></div>
-    <div class="ep-grid ${manyEps ? 'ep-collapse' : ''}" id="ep-grid">${s.episodes.map(epBtn).join('')}</div>
-    ${manyEps ? '<button class="btn btn-ghost ep-expand" id="ep-expand">展开全部 ' + s.episodes.length + ' 集 ↓</button>' : ''}
+    <div class="ep-grid" id="ep-grid">${s.episodes.map(epBtn).join('')}</div>
   </section>
   ${s.recommendations?.length ? `<div class="page" style="padding-top:6px">${shelfHTML('看了又看', s.recommendations.map((it, i) => cardHTML(it, { i })).join(''), '')}</div>` : ''}
   `);
 
   const go = (vid, t = 0) => setHash(`#/play/${s.id}/${vid}?q=${encodeURIComponent(defaultQ)}&t=${t}`);
   $('#play-now')?.addEventListener('click', (e) => go(e.currentTarget.dataset.vid, Number(e.currentTarget.dataset.t || 0)));
-  $('#ep-expand')?.addEventListener('click', (e) => { $('#ep-grid')?.classList.remove('ep-collapse'); e.currentTarget.remove(); });
   $$('.ep-btn').forEach((b) => b.addEventListener('click', () => go(b.dataset.vid, Number(b.dataset.t || 0))));
 }
 
@@ -1004,6 +1185,7 @@ function destroyPlayer() {
   try { recordProgress(P.sid, P.series.name, P.series.cover, P.vid, P.epIndex, P.series.episodes.length, P.video); } catch {}
   clearInterval(P.saveTimer);
   document.removeEventListener('keydown', P.keyHandler);
+  window.removeEventListener('resize', P.fitEl || (() => {}));
   document.body.style.overflow = '';
   playerLayer.innerHTML = '';
   playerLayer.className = '';
@@ -1014,7 +1196,8 @@ function destroyPlayer() {
 }
 
 function applyFit(layer, video) {
-  const cover = store.settings.fit === 'cover';
+  const portrait = video && video.videoHeight > video.videoWidth;
+  const cover = store.settings.fit === 'cover' && !portrait; // 竖屏一律「适应」：高度撑满左右留黑
   layer.classList.toggle('fit-cover', cover);
   if (video) video.classList.toggle('fit-cover', cover);
 }
@@ -1102,10 +1285,37 @@ async function viewPlay(sid, vid, q) {
     </aside>
   </div>`;
 
+  // fit 设置迁移：竖屏永远高度撑满，旧设置只对横屏生效
+  if (!localStorage.getItem('hg_fit_v2')) {
+    try { const st = { ...store.settings }; delete st.fit; localStorage.setItem('hg_settings', JSON.stringify(st)); } catch {}
+    localStorage.setItem('hg_fit_v2', '1');
+  }
   const video = $('#pv');
   const layer = playerLayer;
   applyFit(layer, video);
   video.muted = false;
+  // 显式像素适配：不依赖浏览器 object-fit 的旋转/缩放怪癖
+  const fitEl = () => {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) return;
+    const portrait = vh > vw;
+    const cover = store.settings.fit === 'cover' && !portrait; // 竖屏永远高度撑满
+    const W = layer.clientWidth || window.innerWidth;
+    const H = layer.clientHeight || window.innerHeight;
+    if (cover) {
+      video.style.width = W + 'px'; video.style.height = H + 'px';
+      video.style.objectFit = 'cover';
+    } else {
+      const sc = Math.min(W / vw, H / vh);
+      video.style.width = Math.round(vw * sc) + 'px';
+      video.style.height = Math.round(vh * sc) + 'px';
+      video.style.objectFit = 'fill';
+    }
+  };
+  video.addEventListener('loadedmetadata', fitEl);
+  window.addEventListener('resize', fitEl);
+  layer.addEventListener('fullscreenchange', () => setTimeout(fitEl, 80));
+  onCleanup(() => window.removeEventListener('resize', fitEl));
 
   P = {
     sid, vid, q, mode: play.mode, epIndex, series: s, video,
@@ -1166,6 +1376,7 @@ async function viewPlay(sid, vid, q) {
 
   /* -- 视频事件 -- */
   video.addEventListener('loadedmetadata', () => {
+    applyFit(layer, video); // 元数据就绪后按真实宽高比重设适配
     if (P.resumeTime > 0 && P.resumeTime < video.duration - 15) {
       video.currentTime = P.resumeTime;
       toast(`已从 ${fmtTime(P.resumeTime)} 继续播放`);
@@ -1190,9 +1401,34 @@ async function viewPlay(sid, vid, q) {
   video.addEventListener('playing', () => layer.classList.remove('buffering'));
   video.addEventListener('error', () => {
     if (!video.src) return;
-    toast('视频加载失败，请重试或换一集', 'err');
+    const code = video.error ? video.error.code : '?';
+    const names = { 1: '加载被中断', 2: '网络错误', 3: '解码失败', 4: '格式不支持' };
+    console.error('[播放错误]', code, video.error && video.error.message);
+    // 阶梯 1：清晰度切换后 10 秒内的解码失败 → 重载该清晰度（从头播放，规避 seek+HEVC 解码管线问题）
+    if (P.lastSwitchAt && Date.now() - P.lastSwitchAt < 10000 && !P.switchRetried) {
+      P.switchRetried = true;
+      toast('切换后解码失败，已自动从头重试该清晰度', 'err');
+      const u = video.src;
+      video.removeAttribute('src');
+      video.load();
+      video.src = u;
+      video.load();
+      tryPlay();
+      return;
+    }
+    // 阶梯 2：再次失败 → 回退官网 360P 直链（保证能看）
+    if (P.lastSwitchAt && Date.now() - P.lastSwitchAt < 10000 && !P.webFallbackUsed) {
+      P.webFallbackUsed = true;
+      toast('该清晰度解码异常，已回退官网 360P 通道', 'err');
+      video.src = `${location.origin}/web360/${vid}.mp4`;
+      video.load();
+      tryPlay();
+      return;
+    }
+    toast(`视频加载失败（${names[code] || '未知错误 ' + code}），请重试或换一集`, 'err');
   });
 
+  P.fitEl = fitEl;
   P.saveTimer = setInterval(() => { if (!video.paused) recordProgress(sid, s.name, s.cover, vid, epIndex, s.episodes.length, video); }, 3000);
   window.addEventListener('beforeunload', () => { if (P) recordProgress(sid, s.name, s.cover, vid, epIndex, s.episodes.length, video); });
   onCleanup(() => { if (P) recordProgress(sid, s.name, s.cover, vid, epIndex, s.episodes.length, video); });
@@ -1263,10 +1499,35 @@ async function viewPlay(sid, vid, q) {
   }, String(video.playbackRate)));
 
   const qualityBtn = $('#p-quality');
+  async function switchQuality(newQ) {
+    // 原地切换：不重建播放器，保留播放进度与手势状态
+    if (!newQ || newQ === q) return;
+    const at = video.currentTime || 0;
+    const wasPlaying = !video.paused;
+    qualityBtn.textContent = '切换中…';
+    let play = null;
+    try { play = await api(`/api/play?vid=${encodeURIComponent(vid)}&q=${encodeURIComponent(newQ)}`); } catch { play = null; }
+    if (!play) { toast('切换失败，请重试', 'err'); qualityBtn.textContent = String(q || '').toUpperCase(); return; }
+    video.src = play.url;
+    video.load();
+    video.addEventListener('loadedmetadata', () => {
+      video.currentTime = Math.min(at, video.duration || at);
+      if (wasPlaying) tryPlay(); else updateToggleIcon();
+      seekUI();
+    }, { once: true });
+    q = newQ;
+    P.lastSwitchAt = Date.now();
+    P.switchRetried = false;
+    qualityBtn.textContent = play.quality;
+    const st = $('.player-title .s');
+    if (st) st.innerHTML = `第 ${ep.index} 集 · <b>${esc(play.quality)}</b>${play.mode === 'web' ? ' · 官网直连' : ''}`;
+    history.replaceState(history.state, '', `#/play/${sid}/${vid}?q=${encodeURIComponent(newQ)}`);
+    tryPlay();
+  }
   if (s.qualities.length > 1) {
     qualityBtn.addEventListener('click', () => popMenu(qualityBtn,
       s.qualities.map((x) => ({ v: x.key, label: x.label + (x.key === 'web' ? '（官网）' : '') })),
-      (v) => { if (v !== q) gotoEpisode(vid, v); },
+      (v) => switchQuality(v),
       q || s.qualities[0]?.key));
   } else {
     qualityBtn.style.pointerEvents = 'none';
@@ -1331,6 +1592,25 @@ async function viewPlay(sid, vid, q) {
   layer.addEventListener('pointermove', wake);
   layer.addEventListener('pointerdown', wake);
   wake();
+
+  /* -- 触屏手势：上下滑切集，左右滑快进退 -- */
+  let touchStart = null;
+  layer.addEventListener('touchstart', (ev) => {
+    if (ev.touches.length === 1) touchStart = { x: ev.touches[0].clientX, y: ev.touches[0].clientY, t: Date.now() };
+  }, { passive: true });
+  layer.addEventListener('touchend', (ev) => {
+    if (!touchStart) return;
+    const dx = ev.changedTouches[0].clientX - touchStart.x;
+    const dy = ev.changedTouches[0].clientY - touchStart.y;
+    const dt = Date.now() - touchStart.t;
+    touchStart = null;
+    if (dt > 900) return;
+    if (Math.abs(dy) > 70 && Math.abs(dy) > Math.abs(dx) * 1.3) { dy < 0 ? nextEp() : prevEp(); return; }
+    if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+      video.currentTime = Math.max(0, Math.min(video.duration || 1e9, video.currentTime + (dx < 0 ? -10 : 10)));
+      toast(dx < 0 ? '快退 10s' : '快进 10s');
+    }
+  }, { passive: true });
 
   /* -- 键盘：↑↓ 切集，←→ 快进退，M 静音 -- */
   P.keyHandler = (ev) => {
@@ -1403,6 +1683,7 @@ function initSearch() {
   document.addEventListener('click', (ev) => { if (!ev.target.closest('.searchbox')) close(); });
 }
 
+/* ---------------- 网页全屏 ---------------- */
 /* ---------------- 启动 ---------------- */
 window.addEventListener('hashchange', router);
 initSearch();

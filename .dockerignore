@@ -3,3 +3,4 @@ deploy
 *.fpk
 .DS_Store
 *.log
+.cache

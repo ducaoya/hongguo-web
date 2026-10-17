@@ -57,7 +57,7 @@ start() {
     rm -f "${PID_FILE}" 2>/dev/null || true
 
     cd "${SRC_DIR}"
-    HOST="0.0.0.0" HOSTNAME="0.0.0.0" PORT="${PORT}" \
+    HONGGUO_CACHE_DIR="${DATA_DIR}/cache" HOST="0.0.0.0" HOSTNAME="0.0.0.0" PORT="${PORT}" \
         nohup "${node_bin}" server.js >> "${LOG}" 2>&1 &
     echo $! > "${PID_FILE}"
 

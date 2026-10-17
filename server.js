@@ -14,11 +14,58 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const os = require('os');
 const axios = require('axios');
 
 const PORT = Number(process.env.PORT || 8630);
 const HOST = process.env.HOST || '127.0.0.1';
 const VERSION = (() => { try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')).version || '0.0.0'; } catch { return '0.0.0'; } })();
+const DATA_TTL = 2 * 60 * 60 * 1000; // 第三方数据缓存统一 2 小时
+
+/* ---------------- 日志（落盘 + 超长截断）与磁盘缓存 ---------------- */
+const CACHE_DIR = process.env.HONGGUO_CACHE_DIR || path.join(os.homedir(), '.hongguo-web-cache');
+const LOG_FILE = path.join(CACHE_DIR, 'server.log');
+const LOG_MAX = 512 * 1024; // 超过则截断保留后半
+try { fs.mkdirSync(CACHE_DIR, { recursive: true }); } catch {}
+
+function log(tag, msg) {
+  const line = `[${new Date().toISOString()}] [${tag}] ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`;
+  console.log(line);
+  try {
+    if (fs.existsSync(LOG_FILE) && fs.statSync(LOG_FILE).size > LOG_MAX) {
+      const buf = fs.readFileSync(LOG_FILE);
+      fs.writeFileSync(LOG_FILE, buf.subarray(buf.length - Math.floor(LOG_MAX / 2)));
+    }
+    fs.appendFileSync(LOG_FILE, line + '\n');
+  } catch {}
+}
+
+const DC_DIR = path.join(CACHE_DIR, 'dc');
+const dfile = (key) => path.join(DC_DIR, crypto.createHash('md5').update(key).digest('hex') + '.json');
+
+function dcacheGet(key, ttl) {
+  try {
+    const o = JSON.parse(fs.readFileSync(dfile(key), 'utf8'));
+    if (Date.now() - o.t <= ttl) return o.data;
+    fs.unlinkSync(dfile(key));
+  } catch {}
+  return null;
+}
+
+function dcacheSet(key, data) {
+  try {
+    fs.mkdirSync(DC_DIR, { recursive: true });
+    fs.writeFileSync(dfile(key), JSON.stringify({ t: Date.now(), data }));
+    const files = fs.readdirSync(DC_DIR).map((f) => ({ f, m: fs.statSync(path.join(DC_DIR, f)).mtimeMs }));
+    if (files.length > 500) {
+      files.sort((a, b) => a.m - b.m);
+      for (const x of files.slice(0, files.length - 400)) { try { fs.unlinkSync(path.join(DC_DIR, x.f)); } catch {} }
+    }
+  } catch {}
+}
+
+function dcacheDel(key) { try { fs.unlinkSync(dfile(key)); } catch {} }
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const SITE = 'https://hongguoduanju.com';
@@ -38,13 +85,13 @@ const vendorSrc = fs.readFileSync(path.join(ROOT, 'vendor', 'hongguo.cjs'), 'utf
 const factory = new Function(
   'require', 'axios', 'setResult', 'log',
   '"use strict";\n' + vendorSrc +
-  '\n;return { appSearchPage, fetchVideoInfo, resolveStream, prepareHeader, remoteRange, decryptPartial, parseRangeHeader, qualityLabel, routerData, getText, deriveContentKey, cleanUrl };'
+  '\n;return { appSearchPage, fetchVideoInfo, resolveStream, prepareHeader, remoteRange, decryptPartial, parseRangeHeader, qualityLabel, routerData, getText, deriveContentKey, cleanUrl, pageCache, appSearchCache, videoInfoCache, streamCache };'
 );
 const hg = factory(
   require,
   directAxios,
   (x) => x,
-  (...args) => console.log('[红果源]', ...args),
+  (...args) => log('vendor', args.join(' ')),
 );
 
 /* ---------------- 基础工具 ---------------- */
@@ -110,11 +157,16 @@ function enqueueSite(task) {
 
 const textCache = new Map(); // url → { time, value }
 
-async function getSiteText(url, { ttl = 180000 } = {}) {
+async function getSiteText(url, { ttl = DATA_TTL, validate = null } = {}) {
+  const dk = `html:${url}`;
   const cached = textCache.get(url);
   if (cached && Date.now() - cached.time < ttl) return cached.value;
+  const disk = dcacheGet(dk, ttl);
+  if (disk && (!validate || validate(disk))) { textCache.set(url, { time: Date.now(), value: disk }); return disk; }
   const html = await hg.getText(url);
+  if (validate && !validate(html)) return html; // 壳页：不落盘，交给调用方重试
   textCache.set(url, { time: Date.now(), value: html });
+  dcacheSet(dk, html);
   return html;
 }
 
@@ -131,6 +183,9 @@ function decodeEntities(value) {
 /** 官网 SSR 路由数据；壳页（缺 loaderData 数据键）自动重试 */
 async function siteRouterData(pathAndQuery, { tries = 3 } = {}) {
   let lastErr = null;
+  const dk = `ssr:${pathAndQuery}`;
+  const disk = dcacheGet(dk, DATA_TTL);
+  if (disk) return disk;
   for (let attempt = 0; attempt < tries; attempt += 1) {
     const bust = attempt === 0 ? '' : `${pathAndQuery.includes('?') ? '&' : '?'}_r=${Date.now()}-${attempt}`;
     try {
@@ -144,7 +199,7 @@ async function siteRouterData(pathAndQuery, { tries = 3 } = {}) {
         page.seriesDetail ||
         (page.content && typeof page.content === 'object' && Array.isArray(page.content.rankList) && page.content.rankList.length)
       );
-      if (ok) return page;
+      if (ok) { dcacheSet(dk, page); return page; }
       lastErr = new Error('官网返回壳页');
     } catch (e) {
       lastErr = e;
@@ -160,10 +215,13 @@ function cleanCover(url) {
 
 /* ---------------- 榜单 ---------------- */
 
+let homeCacheT = { time: 0, data: null };
+let lastGoodHome = null;
+const lastGoodShelves = new Map(); // route → 最后成功的榜单条目
 const RANK_ROUTES = {
   'hot-drama': '红果热播榜',
-  'hot-real-drama': '真人剧热播榜',
   'hot-comic-drama': '漫剧热播榜',
+  'hot-real-drama': '真人剧热播榜',
   'hot-ai-drama': 'AI 剧热播榜',
 };
 
@@ -193,23 +251,29 @@ function rankCard(item) {
   };
 }
 
+const rankItemCache = new Map(); // id → card，供搜索补充匹配
+
 async function getRank(route, page = 1) {
   if (!RANK_ROUTES[route]) throw new Error('不支持的榜单');
   const suffix = page > 1 ? `?page=${page}` : '';
   let payload = null;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
     try {
-      const html = await enqueueSite(() => getSiteText(`${SITE}/rank/${route}${suffix}`));
+      const html = await enqueueSite(() => getSiteText(`${SITE}/rank/${route}${suffix}`, { ttl: 1800000, validate: (h) => h.includes('data-fn-name="r"') }));
       payload = parseRankHtml(html);
       if (payload.rankList.length) break;
       if (page > 1) break; // 末页本来就可能是空
     } catch (e) {
-      if (attempt === 2) throw e;
+      if (attempt === 3) throw e;
       textCache.delete(`${SITE}/rank/${route}${suffix}`);
-      await sleep(2000);
+      await sleep(2500 * (attempt + 1));
     }
   }
   const list = (payload?.rankList || []).map(rankCard).filter(Boolean);
+  for (const c of list) {
+    rankItemCache.set(c.id, c);
+    if (rankItemCache.size > 800) rankItemCache.delete(rankItemCache.keys().next().value);
+  }
   const pg = payload?.pagination || {};
   return {
     items: list,
@@ -267,12 +331,15 @@ async function getCategory(typeSlug, subSlug, page = 1) {
 /* ---------------- 搜索 ---------------- */
 
 async function getSearch(q, page = 1) {
+  const ck = `search:${q}:${page}`;
+  const cached = dcacheGet(ck, DATA_TTL);
+  if (cached) return cached;
   let items = [];
   let total = 0;
   let via = 'app';
   try {
     // App 签名搜索（结果质量更好，无分页总数概念，用 hasMore 推断）
-    const result = await hg.appSearchPage(q, 11, page, 20);
+    const result = await hg.appSearchPage(q, 11, page, 30);
     items = (result.list || [])
       .filter((c) => c.url && c.title)
       .map((c) => ({
@@ -285,15 +352,25 @@ async function getSearch(q, page = 1) {
       }));
   } catch (e) {
     via = 'site';
-    console.log('[搜索] App 接口失败，回退官网:', e.message);
-    const data = await siteRouterData(`/search/${encodeURIComponent(q)}?page=${page}`);
+    log('search', `App 接口失败，回退官网: ${e.message}`);
+    if (page > 1) {
+      // 官网搜索不认翻页参数（固定只给前 10 条），页 > 1 直接返回空避免重复数据
+      return { items: [], page, total: 0, via };
+    }
+    const data = await siteRouterData(`/search/${encodeURIComponent(q)}`);
     items = (data.searchList || []).map((cell) => {
       const v = cell?.video_data || {};
       return categoryCard(v) || null;
     }).filter(Boolean);
     total = Number(data.totalCount || 0);
+    // 补充：热播榜缓存中标题命中该关键词的剧（官网单次只给 10 条）
+    const have = new Set(items.map((i) => i.id));
+    const supp = [...rankItemCache.values()].filter((c) => !have.has(c.id) && c.title.includes(q)).slice(0, Math.max(0, 14 - items.length));
+    if (supp.length) items = items.concat(supp);
   }
-  return { items, page, total, via };
+  const out = { items, page, total, via };
+  dcacheSet(ck, out);
+  return out;
 }
 
 /* ---------------- 详情 ---------------- */
@@ -328,9 +405,9 @@ async function getSeries(id) {
   let qualities = [];
   try {
     const rows = await preloadModel(vids[0]);
-    qualities = rows.map((r) => ({ key: r.def || `${r.h}p`, label: r.h ? `${r.h}P` : String(r.def || 'auto').toUpperCase() }));
+    qualities = rows.map((r) => ({ key: r.def || `${r.sw}p`, label: r.sw ? `${r.sw}P` : String(r.def || 'auto').toUpperCase() }));
   } catch (e) {
-    console.log('[清晰度] 高清探测失败，仅提供官网 360P 通道:', e.message);
+    log('probe', `高清探测失败，仅提供官网 360P 通道: ${e.message}`);
   }
   if (!qualities.length) qualities = [{ key: 'web', label: '360P' }];
 
@@ -382,6 +459,9 @@ const MODEL_TTL = 10 * 60 * 1000;
 async function preloadModel(vid) {
   const cached = modelCache.get(vid);
   if (cached && Date.now() - cached.time < MODEL_TTL) return cached.rows;
+  const dk = `vmodel:${vid}`;
+  const disk = dcacheGet(dk, MODEL_TTL);
+  if (disk) { modelCache.set(vid, { time: Date.now(), rows: disk }); return disk; }
   let lastErr = null;
   for (let i = 0; i < 3; i += 1) {
     try {
@@ -407,12 +487,14 @@ async function preloadModel(vid) {
           def: String(v.video_meta?.definition || ''),
           h: Number(v.video_meta?.vheight || 0),
           w: Number(v.video_meta?.vwidth || 0),
+          sw: Math.min(Number(v.video_meta?.vwidth || 0), Number(v.video_meta?.vheight || 0)), // 短边：横竖屏统一的质量口径
           url: String(v.main_url),
           spadeA: v.encrypt_info?.spade_a || null,
         }))
-        .sort((a, b) => b.h - a.h);
+        .sort((a, b) => b.sw - a.sw);
       if (!rows.length) throw new Error('video_list 为空');
       modelCache.set(vid, { time: Date.now(), rows });
+      dcacheSet(dk, rows);
       return rows;
     } catch (e) {
       lastErr = e;
@@ -438,7 +520,7 @@ async function resolveHD(vid, def) {
     vid: String(vid),
     url: row.url,
     key: row.spadeA ? hg.deriveContentKey(row.spadeA) : null,
-    quality: row.h ? `${row.h}P` : String(row.def || 'auto').toUpperCase(),
+    quality: row.sw ? `${row.sw}P` : String(row.def || 'auto').toUpperCase(),
     def: row.def,
   };
   hdCache.set(key, { time: Date.now(), stream });
@@ -461,6 +543,7 @@ async function resolveLiveStream(vid, def) {
     if (i > 0) {
       hdCache.delete(hdKey(vid, def));
       modelCache.delete(String(vid)); // 关键：丢弃旧调度结果，逼出新的 CDN 节点
+      dcacheDel(`vmodel:${vid}`);
     }
     try {
       const stream = await resolveHD(vid, def);
@@ -486,7 +569,7 @@ async function handlePlay(res, u) {
       url: `/stream?vid=${encodeURIComponent(vid)}&q=${encodeURIComponent(stream.def || '')}`,
     });
   } catch (e) {
-    console.log(`[播放] vid=${vid} 高清通道不可用（${e.message}），降级官网公开直链`);
+    log('play', `vid=${vid} 高清通道不可用（${e.message}），降级官网公开直链`);
   }
   sendJson(res, 200, { mode: 'web', quality: '360P', encrypted: false, url: `${SITE}/video/public/${vid}/360p.mp4` });
 }
@@ -497,6 +580,7 @@ async function handleStream(req, res, u) {
   const vid = u.searchParams.get('vid') || '';
   const q = u.searchParams.get('q') || '';
   if (!/^\d+$/.test(vid)) return sendError(res, 400, 'bad vid');
+  log('stream', `vid=${vid} q=${q || 'best'} range=${req.headers.range || 'open'}`);
   const attempt = async (fresh) => {
     if (fresh) {
       hdCache.delete(hdKey(vid, normalizeDef(q)));
@@ -574,18 +658,55 @@ const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = decodeURIComponent(u.pathname);
   const page = Math.max(1, Number(u.searchParams.get('page') || 1));
+  const t0 = Date.now();
+  res.on('finish', () => {
+    if (pathname.startsWith('/api/') || pathname === '/stream') {
+      log('req', `${req.method} ${pathname}${u.search} → ${res.statusCode} (${Date.now() - t0}ms)`);
+    }
+  });
   try {
     if (pathname === '/api/health') return sendJson(res, 200, { service: 'hongguo-web', version: VERSION, ts: Date.now() });
+    if (pathname === '/api/cache/clear') {
+      let n = 0;
+      try { n = fs.readdirSync(DC_DIR).filter((f) => f.endsWith('.json')).length; } catch {}
+      try { fs.rmSync(DC_DIR, { recursive: true, force: true }); } catch {}
+      textCache.clear();
+      modelCache.clear();
+      hg.pageCache.clear();
+      hg.appSearchCache.clear();
+      hg.videoInfoCache.clear();
+      hg.streamCache.clear();
+      homeCacheT = { time: 0, data: null };
+      log('cache', `已清除全部缓存（${n} 条磁盘 + 内存）`);
+      return sendJson(res, 200, { cleared: n });
+    }
     if (pathname === '/api/home') {
-      const routes = Object.keys(RANK_ROUTES);
-      const entries = await Promise.allSettled(routes.map((route) => getRank(route, 1)));
+      if (homeCacheT.data && Date.now() - homeCacheT.time < DATA_TTL) return sendJson(res, 200, homeCacheT.data);
       const shelves = [];
-      routes.forEach((route, idx) => {
-        const e = entries[idx];
-        if (e.status === 'fulfilled') shelves.push({ key: route, title: RANK_ROUTES[route], items: e.value.items });
-      });
-      if (!shelves.length) return sendError(res, 502, '榜单数据全部拉取失败，请稍后重试');
-      return sendJson(res, 200, { shelves });
+      for (const route of Object.keys(RANK_ROUTES)) {
+        try {
+          const r = await getRank(route, 1);
+          if (r.items.length) {
+            const entry = { key: route, title: RANK_ROUTES[route], items: r.items };
+            lastGoodShelves.set(route, entry);
+            shelves.push(entry);
+          }
+        } catch (e) {
+          log('rank-fail', `${route} - ${e.message}`);
+          const g = lastGoodShelves.get(route);
+          if (g) shelves.push(g); // 本次限流失败，用最后一次成功的榜单兜底
+        }
+      }
+      if (!shelves.length) {
+        if (lastGoodHome) {
+          log('home', '榜单全部失败，返回最后可用快照');
+          return sendJson(res, 200, lastGoodHome);
+        }
+        return sendError(res, 502, '榜单数据全部拉取失败，请稍后重试');
+      }
+      homeCacheT = { time: Date.now(), data: { shelves } };
+      lastGoodHome = homeCacheT.data;
+      return sendJson(res, 200, homeCacheT.data);
     }
     if (pathname === '/api/rank') {
       const route = u.searchParams.get('route') || 'hot-drama';
@@ -606,21 +727,27 @@ const server = http.createServer(async (req, res) => {
     }
     const seriesMatch = pathname.match(/^\/api\/series\/(\d+)$/);
     if (seriesMatch) return sendJson(res, 200, await getSeries(seriesMatch[1]));
+    const web360 = pathname.match(/^\/web360\/(\d+)\.mp4$/);
+    if (web360) {
+      // 官网公开 360P 直链（播放器解码降级通道）
+      res.writeHead(302, { Location: `${SITE}/video/public/${web360[1]}/360p.mp4` });
+      return res.end();
+    }
     if (pathname === '/api/play') return await handlePlay(res, u);
     if (pathname === '/stream') return await handleStream(req, res, u);
     if (pathname === '/img') return await handleImg(res, u);
     if (pathname.startsWith('/api/')) return sendError(res, 404, 'not found');
     return serveStatic(res, pathname);
   } catch (e) {
-    console.error('[服务错误]', pathname, '-', e.message);
+    log('err', `${pathname} - ${e.message}`);
     if (!res.headersSent) sendError(res, 502, e.message || 'internal error');
     else res.end();
   }
 });
 
 server.listen(PORT, HOST, () => {
-  console.log('红果短剧 · 网页版 服务已启动');
-  console.log(`  地址: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+  log('boot', '服务已启动');
+  log('boot', `地址: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
   console.log('  数据: 官网 SSR + 番茄 App 接口（drpys 签名实现，GPL-3.0）');
   console.log('  提示: 非官方客户端，仅供个人本地使用；HOST=0.0.0.0 可开放局域网');
 });

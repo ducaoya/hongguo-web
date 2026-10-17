@@ -3,3 +3,5 @@ node_modules/
 .DS_Store
 research/
 nohup.out
+.cache
+.hongguo-web-cache
