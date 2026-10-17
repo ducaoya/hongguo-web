@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 需要完整历史以生成上次发布以来的变更说明
 
       - uses: actions/setup-node@v4
         with:
@@ -29,12 +31,42 @@ jobs:
         id: ver
         run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
-      - name: 创建 Release 并上传 fpk
+      - name: 创建 Release（含自上次发布以来的变更说明）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VER: ${{ steps.ver.outputs.version }}
+          REPO: ${{ github.repository }}
         run: |
+          # 先删除本版本的旧 Release（重复发版时刷新），再取真正的上一个版本标签
           gh release delete "v${VER}" -y --cleanup-tag 2>/dev/null || true
+          PREV=$(gh release list --limit 1 --json tagName -q '.[0].tagName' 2>/dev/null || echo "")
+
+          {
+            if [ -n "${PREV}" ]; then
+              echo "## 本版变更（${PREV} → v${VER}）"
+              echo
+              if git log --oneline "${PREV}..HEAD" | grep -q .; then
+                git log --pretty=format:"- %s（%an）" "${PREV}..HEAD"
+                echo
+                echo
+                echo "**完整对比**：https://github.com/${REPO}/compare/${PREV}...v${VER}"
+              else
+                echo "- 无新提交，本次为重新构建（打包环境更新）"
+              fi
+            else
+              echo "## 首次发布"
+              echo
+              git log --pretty=format:"- %s（%an）"
+            fi
+            echo
+            echo "---"
+            echo "📦 飞牛 fnOS 安装：应用中心 → 手动安装 → 上传 \`hongguo.fpk\`"
+            echo "🐳 Docker / Node 直跑：见 README"
+            echo
+            echo "> 非官方客户端，仅供个人学习使用，与红果官方无关。"
+          } > NOTES.md
+          cat NOTES.md
+
           gh release create "v${VER}" hongguo.fpk \
             --title "红果短剧·深夜剧场 v${VER}" \
-            --notes "fpk 应用包（飞牛 fnOS：应用中心 → 手动安装）。Docker/Node 部署见 README。仅供个人学习使用。"
+            --notes-file NOTES.md
