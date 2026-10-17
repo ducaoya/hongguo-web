@@ -1,6 +1,6 @@
 {
   "name": "hongguo-web",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "红果短剧 · 网页版（本地服务 + SPA，非官方，仅供个人学习使用）",
   "main": "server.js",

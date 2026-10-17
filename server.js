@@ -18,6 +18,7 @@ const axios = require('axios');
 
 const PORT = Number(process.env.PORT || 8630);
 const HOST = process.env.HOST || '127.0.0.1';
+const VERSION = (() => { try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')).version || '0.0.0'; } catch { return '0.0.0'; } })();
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const SITE = 'https://hongguoduanju.com';
@@ -574,7 +575,7 @@ const server = http.createServer(async (req, res) => {
   const pathname = decodeURIComponent(u.pathname);
   const page = Math.max(1, Number(u.searchParams.get('page') || 1));
   try {
-    if (pathname === '/api/health') return sendJson(res, 200, { service: 'hongguo-web', version: '1.0.0', ts: Date.now() });
+    if (pathname === '/api/health') return sendJson(res, 200, { service: 'hongguo-web', version: VERSION, ts: Date.now() });
     if (pathname === '/api/home') {
       const routes = Object.keys(RANK_ROUTES);
       const entries = await Promise.allSettled(routes.map((route) => getRank(route, 1)));
