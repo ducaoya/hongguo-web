@@ -1003,3 +1003,16 @@ input { font: inherit; color: inherit; }
   .filter-scroll { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
   .filter-scroll::-webkit-scrollbar { display: none; }
 }
+
+/* —— 空状态：深夜剧场放映机 —— */
+.empty2 { text-align: center; padding: 64px 20px 48px; }
+.empty2-art { width: min(230px, 56vw); margin: 0 auto 16px; display: block; opacity: .92; }
+.empty2-title {
+  font-family: var(--serif); font-size: 22px; font-weight: 800;
+  color: var(--ink); letter-spacing: .08em; margin-bottom: 8px;
+}
+.empty2-desc { font-size: 13px; color: var(--dim); margin-bottom: 24px; }
+.empty2-actions { display: flex; gap: 12px; justify-content: center; }
+
+/* 抽屉列表滚动不外溢（滚到底不会牵动页面其他滚动） */
+.drawer-body { overscroll-behavior: contain; }

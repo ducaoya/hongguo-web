@@ -133,6 +133,7 @@ async function getHomeData() {
 /* ---------------- 路由 ---------------- */
 const viewEl = $('#view');
 let playerLayer = $('#player-layer');
+let routeSeq = 0; // 路由代数：异步视图在切走后放弃渲染，防止慢数据覆盖当前页
 let cleanups = [];
 
 function onCleanup(fn) { cleanups.push(fn); }
@@ -161,6 +162,7 @@ function resetLayer() {
 
 function router() {
   const { seg, query } = parseHash();
+  routeSeq += 1; // 每次路由切换递增：异步视图据此放弃过期渲染
   runCleanups();
   destroyPlayer();
   resetLayer();
@@ -286,8 +288,38 @@ function shelfHTML(title, cardsHtml, moreHref) {
   </section>`;
 }
 
+/* —— 空状态：深夜剧场放映机插画 —— */
+function emptyBlock(opts) {
+  return `<div class="empty2">
+    <svg class="empty2-art" viewBox="0 0 220 132" aria-hidden="true">
+      <defs>
+        <linearGradient id="emptyBeam" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="rgba(217,164,65,.32)"/>
+          <stop offset="1" stop-color="rgba(217,164,65,0)"/>
+        </linearGradient>
+      </defs>
+      <path d="M96 26 L44 100 L176 100 L124 26 Z" fill="url(#emptyBeam)"/>
+      <rect x="92" y="8" width="36" height="20" rx="5" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.32)"/>
+      <rect x="98" y="13" width="10" height="10" rx="2" fill="rgba(255,255,255,.14)"/>
+      <rect x="112" y="13" width="10" height="10" rx="2" fill="rgba(255,255,255,.14)"/>
+      <circle cx="110" cy="32" r="4" fill="rgba(255,222,150,.92)"/>
+      <rect x="52" y="92" width="116" height="34" rx="6" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.28)"/>
+      <path d="M104 100 L118 109 L104 118 Z" fill="rgba(255,255,255,.8)"/>
+      <circle cx="82" cy="52" r="1.6" fill="rgba(255,255,255,.35)"/>
+      <circle cx="130" cy="44" r="1.2" fill="rgba(255,255,255,.3)"/>
+      <circle cx="150" cy="66" r="1.8" fill="rgba(255,255,255,.24)"/>
+      <circle cx="70" cy="74" r="1.1" fill="rgba(255,255,255,.2)"/>
+      <circle cx="112" cy="60" r="1.3" fill="rgba(255,255,255,.26)"/>
+    </svg>
+    <div class="empty2-title">${esc(opts.title)}</div>
+    <div class="empty2-desc">${esc(opts.desc)}</div>
+    ${opts.actions ? `<div class="empty2-actions">${opts.actions}</div>` : ''}
+  </div>`;
+}
+
 /* ---------------- 首页（缓存优先） ---------------- */
 async function viewHome() {
+  const gen = routeSeq;
   const cached = memoGet('home', HOME_TTL);
   if (!cached) {
     render(`<div class="page">
@@ -471,6 +503,7 @@ function feedShowError(i, msg) {
 }
 
 async function viewFeed() {
+  const gen = routeSeq;
   document.body.style.overflow = 'hidden';
   render('');
   playerLayer.className = 'player-layer feed-mode';
@@ -503,9 +536,10 @@ async function viewFeed() {
   // 列表优先用已缓存数据（首页/榜单拿过的直接复用）
   let shelves;
   try { shelves = (await getHomeData()).shelves; } catch (e) {
-    playerLayer.innerHTML = `<div class="error-box" style="padding-top:30vh"><div class="msg">${esc(e.message)}</div><button class="btn btn-red" onclick="location.reload()">重试</button></div>`;
+    if (gen === routeSeq) playerLayer.innerHTML = `<div class="error-box" style="padding-top:30vh"><div class="msg">${esc(e.message)}</div><button class="btn btn-red" onclick="location.reload()">重试</button></div>`;
     return;
   }
+  if (gen !== routeSeq) return;
 
   const seen = new Set();
   feed.list = [];
@@ -518,7 +552,7 @@ async function viewFeed() {
   }
   feed.list = feed.list.slice(0, 40);
   if (!feed.list.length) {
-    playerLayer.innerHTML = '<div class="empty" style="padding-top:40vh"><div class="glyph">空</div>暂无推荐内容</div>';
+    playerLayer.innerHTML = emptyBlock({ title: '暂无推荐', desc: '稍后再来看看，榜单马上就位' });
     return;
   }
 
@@ -992,6 +1026,7 @@ function rankRowHTML(it, n) {
 }
 
 async function viewRank(route) {
+  const gen = routeSeq;
   const titles = { 'hot-drama': '红果热播榜', 'hot-real-drama': '真人剧热播榜', 'hot-comic-drama': '漫剧热播榜', 'hot-ai-drama': 'AI 剧热播榜' };
   if (!rankStates[route]) rankStates[route] = { items: [], page: 0, totalPages: 1 };
 
@@ -1048,7 +1083,11 @@ async function viewHistory() {
         </div>
         <div class="t">${esc(r.name)}</div>
         <div class="r">${r.total ? `共 ${r.total} 集` : ''}${r.total && r.index ? ' · ' : ''}第 ${r.index} 集</div>
-      </a>`).join('')}</div>` : '<div class="empty"><div class="glyph">空</div>还没有观看记录，去看一部剧吧</div>'}<div style="height:36px"></div>`)
+      </a>`).join('')}</div>` : emptyBlock({
+        title: '剧场还未开演',
+        desc: '看完一集后，这里会记下你的观影足迹',
+        actions: `<a class="btn btn-red" href="#/feed">去推荐刷剧 →</a><a class="btn btn-ghost" href="#/">返回首页</a>`,
+      })}<div style="height:36px"></div>`)
   );
 
   $('#his-clear')?.addEventListener('click', () => {
@@ -1067,6 +1106,7 @@ async function viewHistory() {
 
 /* ---------------- 搜索 ---------------- */
 async function viewSearch(q, page) {
+  const gen = routeSeq;
   const si = $('#search-input');
   if (si && si.value !== q) si.value = q;
   render(`<div class="page">
@@ -1075,9 +1115,10 @@ async function viewSearch(q, page) {
   </div>`);
   let data;
   try { data = await api(`/api/search?q=${encodeURIComponent(q)}&page=${page}`); } catch (e) {
-    render(`<div class="page"><div class="error-box"><div class="msg">${esc(e.message)}</div></div></div>`);
+    if (gen === routeSeq) render(`<div class="page"><div class="error-box"><div class="msg">${esc(e.message)}</div></div></div>`);
     return;
   }
+  if (gen !== routeSeq) return;
   if (!data.items.length) {
     render(`<div class="page"><div class="sec-head"><h2>“${esc(q)}” 的搜索结果</h2></div><div class="empty"><div class="glyph">无</div>没有找到相关剧集，换个关键词试试</div></div>`);
     return;
@@ -1207,6 +1248,7 @@ function applyFit(layer, video) {
 }
 
 async function viewPlay(sid, vid, q) {
+  const gen = routeSeq;
   document.body.style.overflow = 'hidden';
   playerLayer.className = 'player-layer';
   playerLayer.innerHTML = '<div class="sk" style="position:absolute;inset:0;border-radius:0"></div><div class="sk-line" style="position:absolute;left:50%;top:50%;translate:-50% -50%;width:160px"></div>';
@@ -1215,10 +1257,11 @@ async function viewPlay(sid, vid, q) {
 
   let s;
   try { s = await getSeries(sid); } catch (e) {
-    playerLayer.innerHTML = `<div class="error-box" style="padding-top:30vh"><div class="msg">${esc(e.message)}</div><button class="btn btn-red" onclick="history.back()">返回</button></div>`;
+    if (gen === routeSeq) playerLayer.innerHTML = `<div class="error-box" style="padding-top:30vh"><div class="msg">${esc(e.message)}</div><button class="btn btn-red" onclick="history.back()">返回</button></div>`;
     return;
   }
-  const epIndex = Math.max(0, s.episodes.findIndex((e) => e.vid === vid));
+  if (gen !== routeSeq) return;
+  let epIndex = Math.max(0, s.episodes.findIndex((e) => e.vid === vid));
   const ep = s.episodes[epIndex];
   const queryT = Number(parseHash().query.get('t') || 0);
   const rec = store.getProgress(sid);
@@ -1230,6 +1273,7 @@ async function viewPlay(sid, vid, q) {
   else {
     try { play = await api(`/api/play?vid=${encodeURIComponent(vid)}&q=${encodeURIComponent(q || '')}`); } catch { /* 统一报错 */ }
   }
+  if (gen !== routeSeq) return;
   if (!play) {
     playerLayer.innerHTML = `<div class="error-box" style="padding-top:28vh"><div class="msg">播放解析失败，请稍后重试</div><button class="btn btn-red" onclick="location.reload()">重试</button><button class="btn btn-ghost" style="margin-left:10px" onclick="history.back()">返回</button></div>`;
     return;
@@ -1336,21 +1380,46 @@ async function viewPlay(sid, vid, q) {
     $('#p-bigplay').style.display = video.paused ? 'grid' : 'none';
   }
 
-  /** 换集/换清晰度：替换历史（浏览器退回直达进入播放器前的页面） */
-  function gotoEpisode(nextVid, nextQ) {
-    history.replaceState(history.state, '', `#/play/${sid}/${nextVid}?q=${encodeURIComponent(nextQ || q || '')}`);
-    router();
+  /** 原地换集：不重建播放器、无路由闪烁；进度条/抽屉/标题随之更新 */
+  async function switchEpisode(nextVid) {
+    if (nextVid === vid) return;
+    const ep2 = s.episodes.find((e) => e.vid === nextVid);
+    if (!ep2) return;
+    recordProgress(sid, s.name, s.cover, vid, epIndex, s.episodes.length, video);
+    P.lastSwitchAt = Date.now(); P.switchRetried = false; P.webFallbackUsed = false;
+    P.resumeTime = 0;
+    let play = null;
+    const pre = prewarm.get(nextVid);
+    if (pre) { play = { mode: pre.mode, quality: pre.quality, url: pre.url }; prewarm.delete(nextVid); }
+    else {
+      qualityBtn.textContent = '切换中…';
+      try { play = await api(`/api/play?vid=${encodeURIComponent(nextVid)}&q=${encodeURIComponent(q || '')}`); } catch { play = null; }
+      if (!play) { toast('切换失败，请重试', 'err'); return; }
+    }
+    vid = nextVid; P.vid = vid; epIndex = ep2.index - 1; P.epIndex = epIndex;
+    video.src = play.url; video.load();
+    video.addEventListener('loadedmetadata', () => { if (fitEl) fitEl(); seekUI(); tryPlay(); }, { once: true });
+    qualityBtn.textContent = play.quality;
+    const st = $('.player-title .s');
+    if (st) st.innerHTML = `第 ${ep2.index} 集 · <b>${esc(play.quality)}</b>${play.mode === 'web' ? ' · 官网直连' : ''}`;
+    history.replaceState(history.state, '', `#/play/${sid}/${nextVid}?q=${encodeURIComponent(q || '')}`);
+    $('#p-cur').textContent = '0:00';
+    knob.style.left = railPlay.style.width = railBuf.style.width = '0%';
+    const nc = Math.floor(epIndex / EP_CHUNK);
+    if (nc !== curChunk) { curChunk = nc; renderChunk(); } else renderChunk();
+    prefetchUpcoming(s, epIndex, q || s.qualities[0]?.key || '', 2);
+    tryPlay();
   }
   function nextEp() {
     const next = s.episodes[epIndex + 1];
     if (!next) { toast('已经是最后一集了'); return false; }
-    gotoEpisode(next.vid, q);
+    switchEpisode(next.vid);
     return true;
   }
   function prevEp() {
     const prev = s.episodes[epIndex - 1];
     if (!prev) { toast('已经是第一集了'); return false; }
-    gotoEpisode(prev.vid, q);
+    switchEpisode(prev.vid);
     return true;
   }
 
@@ -1489,8 +1558,10 @@ async function viewPlay(sid, vid, q) {
   /* -- 鼠标滚轮切换上下集 -- */
   layer.addEventListener('wheel', (ev) => {
     if (P.seekDrag) return;
-    if (drawer?.classList.contains('open')) return;
+    if (drawer && drawer.classList.contains('open')) return;
     if ($('.pop-menu', layer)) return;
+    // 仅在视频画面上滚动才切集；抽屉/控制条上的滚轮走各自正常行为
+    if (!ev.target.closest || !ev.target.closest('.player-video-wrap')) return;
     const now = Date.now();
     if (now - P.wheelLock < 900 || Math.abs(ev.deltaY) < 18) return;
     P.wheelLock = now;
@@ -1603,7 +1674,7 @@ async function viewPlay(sid, vid, q) {
   $('#p-eps').addEventListener('click', (ev) => {
     const b = ev.target.closest('.ep-btn');
     if (!b) return;
-    gotoEpisode(b.dataset.vid, q);
+    switchEpisode(b.dataset.vid);
   });
 
   /* -- 闲置隐藏 -- */
