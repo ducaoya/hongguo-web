@@ -17,14 +17,19 @@ const fmtTime = (s) => {
   return h ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
 };
 
-let toastTimer = null;
+let toastTimer = null, toastHideTimer = null;
 function toast(msg, type = '') {
   const el = $('#toast');
+  clearTimeout(toastTimer);
+  clearTimeout(toastHideTimer);
   el.textContent = msg;
   el.className = `toast ${type}`;
   el.hidden = false;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
+  void el.offsetWidth; // 重放入场动画（连续提示也能平滑衔接）
+  toastTimer = setTimeout(() => {
+    el.classList.add('out');
+    toastHideTimer = setTimeout(() => { el.hidden = true; el.classList.remove('out'); }, 280);
+  }, 2600);
 }
 
 async function api(path) {
@@ -163,7 +168,7 @@ function router() {
 
   if (!seg.length) return viewHome();
   if (seg[0] === 'feed') return viewFeed();
-  if (seg[0] === 'category') return viewCategory(seg[1] || 'real-drama', /^[a-z-]+$/.test(seg[2] || '') ? seg[2] : '', Number(seg[2]) || Number(seg[3]) || 1);
+  if (seg[0] === 'category') return viewCategory(seg[1] || 'comic-drama', /^[a-z-]+$/.test(seg[2] || '') ? seg[2] : '', Number(seg[2]) || Number(seg[3]) || 1);
   if (seg[0] === 'rank' && /^[a-z-]+$/.test(seg[1] || '')) return viewRank(seg[1]);
   if (seg[0] === 'history') return viewHistory();
   if (seg[0] === 'search' && seg[1]) return viewSearch(decodeURIComponent(seg[1]), Number(query.get('page') || 1));
@@ -218,7 +223,7 @@ function cardHTML(item, opts = {}) {
       <span class="play-badge">${PLAY_SVG}</span>
       <button class="card-detail-btn" title="查看详情" data-detail="${esc(item.id)}">${INFO_SVG}</button>
       ${opts.resumeBar != null ? `<div class="resume-bar"><i style="width:${Math.min(100, opts.resumeBar)}%"></i></div>` : ''}
-      ${opts.resumeEp ? `<span class="resume-ep">看到 ${esc(opts.resumeEp)}</span>` : (!opts.resumeBar && item.remarks ? `<span class="remarks">${esc(item.remarks)}</span>` : '')}
+      ${opts.resumeEp ? `<span class="resume-ep">看到 ${esc(opts.resumeEp)}</span>` : ''}
     </div>
     <div class="t">${esc(item.title)}</div>
     <div class="r">${item.score ? `<b>${esc(item.score)}</b>` : ''}${item.score && (item.heat || item.remarks) ? ' · ' : ''}${esc(item.heat || (opts.resumeEp ? '' : item.remarks) || '')}</div>
@@ -277,7 +282,7 @@ function shelfHTML(title, cardsHtml, moreHref) {
   return `
   <section class="sec">
     <div class="sec-head"><h2>${esc(title)}</h2>${moreHref ? `<a class="more" href="${moreHref}">查看全部 →</a>` : ''}</div>
-    <div class="rail">${cardsHtml}</div>
+    <div class="rail-wrap"><div class="rail">${cardsHtml}</div><div class="rail-fade"></div></div>
   </section>`;
 }
 
@@ -911,14 +916,14 @@ async function fetchCategoryPage(type, sub, page) {
 
 async function viewCategory(type, sub, page) {
   const state = catLoad(type, sub);
-  const types = [['real-drama', '真人剧'], ['comic-drama', '漫剧'], ['ai-drama', 'AI 剧']];
+  const types = [['comic-drama', '漫剧'], ['real-drama', '真人剧'], ['ai-drama', 'AI 剧']];
 
   const headHtml = `
     <div class="type-tabs">
       ${types.map(([slug, name]) => `<a class="type-tab ${slug === type ? 'on' : ''}" href="#/category/${slug}">${esc(name)}</a>`).join('')}
     </div>
     <div class="filter-row" id="cat-filters"><span class="filter-label">题材</span>
-      ${state.selectors ? state.selectors[0]?.items.map((c) => `<a class="fchip ${c.id === sub ? 'on' : ''}" href="#/category/${esc(type)}/${esc(c.id)}">${esc(c.name)}</a>`).join('') : '<span class="sk sk-line" style="width:50%;height:26px"></span>'}
+      <div class="filter-scroll">${state.selectors ? state.selectors[0]?.items.map((c) => `<a class="fchip ${c.id === sub ? 'on' : ''}" href="#/category/${esc(type)}/${esc(c.id)}">${esc(c.name)}</a>`).join('') : '<span class="sk sk-line" style="width:50%;height:26px"></span>'}</div>
     </div>`;
 
   const bodyHtml = state.items.length
@@ -940,8 +945,8 @@ async function viewCategory(type, sub, page) {
       st.selectors = data.selectors;
       catSave(type, sub, st);
       const chips = [{ id: '', name: '全部' }, ...data.selectors[0].items];
-      $('#cat-filters').innerHTML = '<span class="filter-label">题材</span>' + chips
-        .map((c) => `<a class="fchip ${c.id === sub ? 'on' : ''}" href="#/category/${esc(type)}/${esc(c.id)}">${esc(c.name)}</a>`).join('');
+      $('#cat-filters').innerHTML = '<span class="filter-label">题材</span><div class="filter-scroll">' + chips
+        .map((c) => `<a class="fchip ${c.id === sub ? 'on' : ''}" href="#/category/${esc(type)}/${esc(c.id)}">${esc(c.name)}</a>`).join('') + '</div>';
     }
     if (!data.items.length) { st.totalPages = Math.min(st.totalPages || 1, st.page); catSave(type, sub, st); return false; }
     st.items = st.items.concat(data.items);
@@ -1100,7 +1105,6 @@ async function viewSearch(q, page) {
 /* ---------------- 详情 ---------------- */
 async function viewSeries(id) {
   render(`<div class="detail-hero">
-    <div class="detail-backdrop sk" style="position:absolute;inset:0;height:105%;overflow:hidden"></div>
     <div class="detail-body">
       <div class="sk detail-poster"></div>
       <div class="detail-info">
@@ -1261,12 +1265,12 @@ async function viewPlay(sid, vid, q) {
         <button class="icon-btn" id="p-prev" title="上一集 (↑ / P / 滚轮上)"><svg class="stroke" viewBox="0 0 24 24"><path d="M18 5v14L8 12zM6 5v14"/></svg></button>
         <button class="icon-btn" id="p-next" title="下一集 (↓ / N / 滚轮下)"><svg class="stroke" viewBox="0 0 24 24"><path d="M6 5v14l10-7zM18 5v14"/></svg></button>
         <button class="icon-btn" id="p-vol" title="静音 (M)"><svg class="stroke" viewBox="0 0 24 24" id="p-vol-ic"><path d="M4 9v6h4l5 4V5L8 9zM16 9c1.5 1.5 1.5 4.5 0 6"/></svg></button>
-        <span class="tm" id="p-vol-pct" style="width:38px">100%</span>
+        <input type="range" id="p-vol-range" class="vol-range" min="0" max="100" step="1" value="100" title="音量">
         <div class="spacer"></div>
         <button class="ctrl-label" id="p-speed">1x</button>
         <button class="ctrl-label" id="p-quality">${esc(play.quality)}</button>
         <button class="ctrl-label" id="p-fit">${store.settings.fit === 'cover' ? '铺满' : '适应'}</button>
-        <button class="ctrl-label" id="p-autonext">自动连播 ${store.settings.autoNext === false ? '关' : '开'}</button>
+        <button class="ctrl-label" id="p-autonext" title="自动连播">连播</button>
         <button class="icon-btn" id="p-full" title="全屏 (F)"><svg class="stroke" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       </div>
     </div>
@@ -1452,16 +1456,35 @@ async function viewPlay(sid, vid, q) {
     else layer.requestFullscreen?.().catch(() => {});
   });
 
-  const volPct = $('#p-vol-pct');
-  const setVol = (v) => {
-    video.volume = Math.min(1, Math.max(0, v));
-    video.muted = video.volume === 0;
-    volPct.textContent = Math.round(video.volume * 100) + '%';
-    $('#p-vol-ic').innerHTML = video.muted
+  const volRange = $('#p-vol-range');
+  const syncVolUI = () => {
+    const lvl = video.muted ? 0 : video.volume;
+    $('#p-vol-ic').innerHTML = lvl === 0
       ? '<path d="M4 9v6h4l5 4V5L8 9zM17 9l4 6M21 9l-4 6"/>'
       : '<path d="M4 9v6h4l5 4V5L8 9zM16 9c1.5 1.5 1.5 4.5 0 6"/>';
+    volRange.style.setProperty('--fill', Math.round(lvl * 100) + '%'); // 拖动中也实时更新填充
+    if (document.activeElement !== volRange) {
+      volRange.value = Math.round(lvl * 100);
+    }
   };
-  $('#p-vol').addEventListener('click', () => setVol(video.muted ? 1 : 0));
+  const setVol = (v, fromSlider) => {
+    video.volume = Math.min(1, Math.max(0, v));
+    video.muted = video.volume === 0;
+    if (!fromSlider) {
+      volRange.value = Math.round(video.volume * 100);
+      volRange.style.setProperty('--fill', Math.round(video.volume * 100) + '%');
+    }
+    syncVolUI();
+  };
+  volRange.addEventListener('input', () => {
+    video.muted = false;
+    setVol(volRange.value / 100, true);
+  });
+  $('#p-vol').addEventListener('click', () => setVol(video.muted || video.volume === 0 ? (P.lastVol || 1) : 0));
+  video.addEventListener('volumechange', () => {
+    if (video.volume > 0 && !video.muted) P.lastVol = video.volume;
+    syncVolUI();
+  });
 
   /* -- 鼠标滚轮切换上下集 -- */
   layer.addEventListener('wheel', (ev) => {
@@ -1543,11 +1566,13 @@ async function viewPlay(sid, vid, q) {
   });
 
   const autoBtn = $('#p-autonext');
+  const syncAuto = () => autoBtn.classList.toggle('off', store.settings.autoNext === false);
   autoBtn.addEventListener('click', () => {
-    const next = store.settings.autoNext === false;
-    store.setSetting('autoNext', next);
-    autoBtn.textContent = `自动连播 ${next ? '开' : '关'}`;
+    store.setSetting('autoNext', store.settings.autoNext === false);
+    syncAuto();
+    toast(`自动连播已${store.settings.autoNext === false ? '关闭' : '开启'}`);
   });
+  syncAuto();
 
   /* -- 选集抽屉（封面+简介 + 50 集分组） -- */
   const drawer = $('#p-drawer-el');
@@ -1684,7 +1709,23 @@ function initSearch() {
 }
 
 /* ---------------- 网页全屏 ---------------- */
+/* ---------------- 榜单右缘渐隐 ---------------- */
+function refreshRailFades() {
+  $$('.rail').forEach((rail) => {
+    const fade = rail.parentElement && rail.parentElement.querySelector('.rail-fade');
+    if (!fade) return;
+    const atEnd = rail.scrollLeft + rail.clientWidth >= rail.scrollWidth - 8;
+    fade.classList.toggle('off', atEnd || rail.scrollWidth <= rail.clientWidth + 4);
+  });
+}
+function initRailFades() {
+  document.addEventListener('scroll', (ev) => {
+    if (ev.target && ev.target.classList && ev.target.classList.contains('rail')) refreshRailFades();
+  }, true);
+}
+
 /* ---------------- 启动 ---------------- */
 window.addEventListener('hashchange', router);
 initSearch();
+initRailFades();
 router();
