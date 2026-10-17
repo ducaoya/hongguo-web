@@ -871,7 +871,7 @@ async function viewRank(route) {
   if (!rankStates[route]) rankStates[route] = { items: [], page: 0, totalPages: 1 };
 
   const headHtml = `
-    <div class="sec-head" style="margin:0"><h2>${esc(titles[route] || '榜单')}</h2><a class="more" id="rk-count"></a></div>`;
+    <div class="sec-head" style="margin:0"><h2>${esc(titles[route] || '榜单')}</h2></div>`;
   const bodyHtml = rankStates[route].items.length
     ? `<div class="rank-list" id="rk-list">${rankStates[route].items.map((it, i) => rankRowHTML(it, i + 1)).join('')}</div>`
     : `<div class="rank-list" id="rk-list">${Array.from({ length: 12 }, () => `<div class="rank-row"><span class="sk sk-line" style="width:46px;height:40px;border-radius:8px"></span><span class="sk" style="width:44px;height:58px;border-radius:6px"></span><div class="m" style="flex:1"><div class="sk sk-line w60"></div><div class="sk sk-line w40"></div></div></div>`).join('')}</div>`;
@@ -892,16 +892,10 @@ async function viewRank(route) {
     const rows = data.items.map((it, i) => rankRowHTML(it, (nextPage - 1) * 20 + i + 1)).join('');
     if (firstFill) { $('#rk-list').innerHTML = rows; firstFill = false; }
     else $('#rk-list').insertAdjacentHTML('beforeend', rows);
-    updateCount();
     return st.page < st.totalPages;
   }
 
-  function updateCount() {
-    const el = $('#rk-count');
-    if (el) el.textContent = `第 ${st.page} / ${st.totalPages || '?'} 页 · ${st.items.length} 部`;
-  }
-
-  if (st.items.length) { updateCount(); } else await loadMore();
+  if (st.items.length) { } else await loadMore();
 
   const stop = attachInfinite($('.scroll-region'), $('#rk-sentinel'), loadMore, () => {
     $('#rk-sentinel').innerHTML = '<div class="load-line">已经到底了</div>';
