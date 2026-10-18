@@ -91,13 +91,21 @@ input { font: inherit; color: inherit; }
   font-size: 10px; letter-spacing: .42em; color: var(--dim);
   padding-top: 7px; user-select: none;
 }
-.nav { display: flex; gap: 4px; flex-shrink: 0; }
+.nav { display: flex; gap: 16px; flex-shrink: 0; }
 .nav a {
-  padding: 7px 15px; border-radius: 999px; color: var(--dim); font-size: 14px;
-  transition: color .2s, background .2s;
+  padding: 6px 8px; border-radius: 0; color: var(--dim); font-size: 13.5px;
+  letter-spacing: .04em;
+  position: relative;
+  transition: color .25s;
+}
+.nav a::after {
+  content: ""; position: absolute; left: 50%; bottom: 0; width: 0; height: 2.5px;
+  border-radius: 2px; background: var(--red);
+  transition: width .3s cubic-bezier(.22,.8,.3,1), left .3s cubic-bezier(.22,.8,.3,1);
 }
 .nav a:hover { color: var(--ink); }
-.nav a.active { color: var(--ink); background: var(--panel-2); }
+.nav a.active { color: var(--ink); font-weight: 600; }
+.nav a.active::after { width: 100%; left: 0; }
 
 
 .searchbox { position: relative; margin-left: auto; width: min(300px, 32vw); }
@@ -703,7 +711,7 @@ input { font: inherit; color: inherit; }
   .brand-name, .brand-div, .brand-sub { display: none; }
   .nav { flex: 1; justify-content: flex-end; overflow-x: auto; scrollbar-width: none; }
   .nav::-webkit-scrollbar { display: none; }
-  .nav a { padding: 5px 10px; font-size: 12.5px; }
+  .nav a { padding: 5px 8px; font-size: 12.5px; }
   .searchbox { width: 100%; order: 5; }
   .detail-body { flex-direction: column; align-items: center; text-align: center; }
   .detail-intro { margin-inline: auto; }
@@ -754,19 +762,7 @@ input { font: inherit; color: inherit; }
   box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 12px 40px -18px rgba(0,0,0,.6);
 }
 
-/* —— 导航胶囊 —— */
-.nav a {
-  background: rgba(255,255,255,.045);
-  border: 1px solid transparent;
-  box-shadow: none;
-}
-.nav a:hover { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.12); }
-.nav a.active {
-  background: var(--lg-tint-strong);
-  border-color: var(--lg-border);
-  box-shadow: var(--lg-edge), 0 6px 22px -8px rgba(0,0,0,.5);
-  backdrop-filter: var(--lg-blur);
-}
+/* —— 导航（液态玻璃版：文字+红色指示条，无胶囊底） —— */
 
 /* —— 搜索框 —— */
 .searchbox input {

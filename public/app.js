@@ -974,6 +974,7 @@ async function viewCategory(type, sub, page) {
     let data;
     try { data = await fetchCategoryPage(type, sub, nextPage); } catch (e) { return false; }
     if (gen !== routeSeq) return false; // 切走后不再追加
+    if (gen !== routeSeq) return false;
     if (!selectorsFetched && data.selectors?.length) {
       selectorsFetched = true;
       st.selectors = data.selectors;
@@ -988,10 +989,12 @@ async function viewCategory(type, sub, page) {
     st.totalPages = data.totalPages || st.totalPages;
     st.total = data.total || st.total;
     catSave(type, sub, st);
+    if (gen !== routeSeq) return false;
+    const grid = $('#cat-grid');
+    if (!grid) return false;
     const cards = data.items.map((it, i) => cardHTML(it, { i })).join('');
-    if (firstFill) { $('#cat-grid').innerHTML = cards; firstFill = false; }
-    else $('#cat-grid').insertAdjacentHTML('beforeend', cards);
-    updateCount();
+    if (firstFill) { grid.innerHTML = cards; firstFill = false; }
+    else grid.insertAdjacentHTML('beforeend', cards);
     return st.page < st.totalPages;
   }
 
@@ -1004,7 +1007,9 @@ async function viewCategory(type, sub, page) {
   else await loadMore();
 
   const stop = attachInfinite($('.scroll-region'), $('#cat-sentinel'), loadMore, () => {
-    $('#cat-sentinel').innerHTML = '<div class="load-line">已经到底了</div>';
+    if (gen !== routeSeq) return;
+    const el = $('#cat-sentinel');
+    if (el) el.innerHTML = '<div class="load-line">已经到底了</div>';
   });
   onCleanup(stop);
 }
@@ -1049,16 +1054,21 @@ async function viewRank(route) {
     st.items = st.items.concat(data.items);
     st.page = nextPage;
     st.totalPages = data.totalPages || st.totalPages;
+    if (gen !== routeSeq) return false; // 切走后放弃
     const rows = data.items.map((it, i) => rankRowHTML(it, (nextPage - 1) * 20 + i + 1)).join('');
-    if (firstFill) { $('#rk-list').innerHTML = rows; firstFill = false; }
-    else $('#rk-list').insertAdjacentHTML('beforeend', rows);
+    const rkList = $('#rk-list');
+    if (!rkList) return false;
+    if (firstFill) { rkList.innerHTML = rows; firstFill = false; }
+    else rkList.insertAdjacentHTML('beforeend', rows);
     return st.page < st.totalPages;
   }
 
   if (st.items.length) { } else await loadMore();
 
   const stop = attachInfinite($('.scroll-region'), $('#rk-sentinel'), loadMore, () => {
-    $('#rk-sentinel').innerHTML = '<div class="load-line">已经到底了</div>';
+    if (gen !== routeSeq) return;
+    const el = $('#rk-sentinel');
+    if (el) el.innerHTML = '<div class="load-line">已经到底了</div>';
   });
   onCleanup(stop);
 }
