@@ -377,16 +377,22 @@ async function viewHome() {
   const cards = $$('.c3d-card'), dots = $$('.hero-dot');
   let hi = 0, heroTimer = null;
   const n = cards.length;
-  const layout3d = () => {
-    hi = ((hi % n) + n) % n; // 归一化：负数/越界也能正确点亮圆点
+  const layout3d = (dragPx = 0) => {
+    hi = ((hi % n) + n) % n;
+    // 拖拽像素 → 卡片偏移百分比（基于卡片宽度）
+    const cardW = cards[0]?.offsetWidth || 200;
+    const dragPct = (dragPx / cardW) * 100;
     cards.forEach((card, i) => {
       let off = ((i - hi) % n + n) % n;
       if (off > n / 2) off -= n;
       const abs = Math.abs(off);
-      card.style.opacity = abs <= 2 ? String(1 - abs * 0.3) : '0';
-      card.style.zIndex = String(20 - abs);
-      card.style.transform = `translate(-50%, -50%) translateX(${off * 64}%) rotateY(${off === 0 ? 0 : off < 0 ? 30 : -30}deg) scale(${off === 0 ? 1 : Math.max(0.7, 1 - abs * 0.12)})`;
-      card.classList.toggle('center', off === 0);
+      // 拖拽时把像素偏移叠加到百分比偏移上，实现跟手
+      const effOff = off + dragPct / 64;
+      card.style.opacity = Math.abs(effOff) <= 2 ? String(Math.max(0, 1 - Math.abs(effOff) * 0.3)) : '0';
+      card.style.zIndex = String(20 - Math.round(Math.abs(effOff)));
+      const rot = effOff === 0 ? 0 : effOff < 0 ? 30 : -30;
+      card.style.transform = `translate(-50%, -50%) translateX(${effOff * 64}%) rotateY(${rot}deg) scale(${Math.abs(effOff) < 0.5 ? 1 : Math.max(0.7, 1 - Math.abs(effOff) * 0.12)})`;
+      card.classList.toggle('center', Math.abs(effOff) < 0.3);
     });
     dots.forEach((d, k) => d.classList.toggle('on', k === hi));
   };
@@ -396,12 +402,12 @@ async function viewHome() {
     heroAuto();
     $('#hero').addEventListener('mouseenter', () => clearInterval(heroTimer));
     $('#hero').addEventListener('mouseleave', heroAuto);
-    $$('.hero-dot').forEach((d, k) => d.addEventListener('click', () => { hi = k; layout3d(); }));
-    $$('.hero-arrow').forEach((a) => a.addEventListener('click', () => { hi = a.dataset.dir === 'prev' ? hi - 1 : hi + 1; layout3d(); }));
+    $$('.hero-dot').forEach((d, k) => d.addEventListener('click', () => { hi = k; layout3d(); heroAuto(); }));
+    $$('.hero-arrow').forEach((a) => a.addEventListener('click', () => { hi = a.dataset.dir === 'prev' ? hi - 1 : hi + 1; layout3d(); heroAuto(); }));
     $$('.c3d-card').forEach((c) => c.addEventListener('click', (ev) => {
       if (ev.target.closest('button,a')) return;
       const i = Number(c.dataset.i);
-      if (i !== hi) { hi = i; layout3d(); }
+      if (i !== hi) { hi = i; layout3d(); heroAuto(); }
     }));
     // 触控板横向滑动切换
     let wheelLock = 0;
@@ -412,15 +418,41 @@ async function viewHome() {
       wheelLock = now;
       hi += ev.deltaX > 0 ? 1 : -1;
       layout3d();
+      heroAuto();
     }, { passive: true });
-    // 鼠标按住左右拖拽切换
+    // 鼠标按住拖拽：卡片实时跟手，松手弹回或切换
     let dragStart = null;
-    $('.c3d-stage').addEventListener('pointerdown', (ev) => { dragStart = { x: ev.clientX, y: ev.clientY }; });
-    $('.c3d-stage').addEventListener('pointerup', (ev) => {
+    const stage = $('.c3d-stage');
+    stage.addEventListener('pointerdown', (ev) => {
+      if (ev.target.closest('button,a')) return;
+      dragStart = { x: ev.clientX, y: ev.clientY };
+      stage.classList.add('dragging'); // 隐藏所有字幕
+      cards.forEach((c) => { c.style.transition = 'none' });
+      stage.setPointerCapture(ev.pointerId);
+    });
+    stage.addEventListener('pointermove', (ev) => {
       if (!dragStart) return;
-      const dx = ev.clientX - dragStart.x, dy = ev.clientY - dragStart.y;
+      const dx = ev.clientX - dragStart.x;
+      layout3d(dx); // 实时偏移，卡片跟手
+    });
+    stage.addEventListener('pointerup', (ev) => {
+      if (!dragStart) return;
+      const dx = ev.clientX - dragStart.x;
+      const dy = ev.clientY - dragStart.y;
       dragStart = null;
-      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.2) { hi += dx < 0 ? 1 : -1; layout3d(); }
+      stage.classList.remove('dragging'); // 恢复字幕
+      cards.forEach((c) => { c.style.transition = '' });
+      // 定位到最近的卡片（根据拖拽距离可跨多张）
+      const cardW = cards[0]?.offsetWidth || 200;
+      const shift = Math.round(-dx / (cardW * 0.64));
+      if (shift !== 0) { hi = ((hi + shift) % n + n) % n; }
+      layout3d();
+      heroAuto();
+    });
+    stage.addEventListener('pointercancel', () => {
+      dragStart = null;
+      cards.forEach((c) => { c.style.transition = '' });
+      layout3d();
     });
     onCleanup(() => clearInterval(heroTimer));
   }

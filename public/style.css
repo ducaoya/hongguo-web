@@ -246,7 +246,10 @@ input { font: inherit; color: inherit; }
 }
 
 /* ---------- 首页 3D 轮播（竖卡） ---------- */
-.hero3d { position: relative; margin-bottom: 44px; padding-bottom: 30px; overflow: hidden; }
+.hero3d { position: relative; margin-bottom: 44px; padding-bottom: 30px; overflow: hidden;
+  user-select: none; -webkit-user-select: none; -webkit-user-drag: none; touch-action: pan-y;
+}
+.hero3d img { -webkit-user-drag: none; pointer-events: none; }
 .c3d-stage {
   position: relative; height: clamp(300px, 34vh, 370px);
   perspective: 1200px; transform-style: preserve-3d;
@@ -257,7 +260,7 @@ input { font: inherit; color: inherit; }
   border-radius: 14px; overflow: hidden;
   transform: translate(-50%, -50%);
   transform-style: preserve-3d;
-  transition: transform .55s cubic-bezier(.22,.8,.3,1), opacity .4s ease, filter .4s ease;
+  transition: transform .55s cubic-bezier(.22,.8,.3,1), opacity .4s ease, filter .4s ease, filter .4s;
   box-shadow: 0 24px 60px -18px rgba(0,0,0,.85);
   background: var(--panel-2);
   will-change: transform;
@@ -1009,3 +1012,6 @@ input { font: inherit; color: inherit; }
 
 /* 抽屉列表滚动不外溢（滚到底不会牵动页面其他滚动） */
 .drawer-body { overscroll-behavior: contain; }
+
+/* 拖拽中隐藏所有卡片字幕 */
+.c3d-stage.dragging .c3d-cap { opacity: 0 !important; }
